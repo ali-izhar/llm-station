@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-studio"
+version = "0.0.1"
+description = "Provider-agnostic agent framework with tools"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name="Your Team" }]
+license = { text = "Proprietary" }
+keywords = ["llm", "agents", "tools", "openai", "anthropic", "gemini"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: Other/Proprietary License",
+  "Operating System :: OS Independent",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["llm_studio*"]
+exclude = ["examples*"]
+
