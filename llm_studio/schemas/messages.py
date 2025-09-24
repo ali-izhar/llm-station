@@ -39,15 +39,20 @@ class UserMessage(Message):
 @dataclass
 class AssistantMessage(Message):
     tool_calls: Optional[List[ToolCall]] = None
+    grounding_metadata: Optional[Dict[str, Any]] = (
+        None  # Preserve metadata from ModelResponse
+    )
 
     def __init__(
         self,
         content: str,
         name: Optional[str] = None,
         tool_calls: Optional[List[ToolCall]] = None,
+        grounding_metadata: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(role="assistant", content=content, name=name)
         self.tool_calls = tool_calls
+        self.grounding_metadata = grounding_metadata
 
 
 @dataclass

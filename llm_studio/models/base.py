@@ -27,6 +27,8 @@ class ModelConfig:
     reasoning: Optional[Dict[str, Any]] = (
         None  # e.g., {"effort": "low"|"medium"|"high"}
     )
+    # Additional OpenAI-specific parameters for advanced usage
+    instructions: Optional[str] = None  # Custom instructions for Responses API
 
 
 class ProviderAdapter(abc.ABC):

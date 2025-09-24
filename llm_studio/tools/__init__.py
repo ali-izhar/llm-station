@@ -7,7 +7,9 @@ from .web_search.openai import OpenAIWebSearch
 from .web_search.anthropic import AnthropicWebSearch
 from .web_search.google import GoogleWebSearch, GoogleSearchRetrieval
 from .web_fetch.anthropic import AnthropicWebFetch
+from .code_execution.openai import OpenAICodeInterpreter
 from .code_execution.google import GoogleCodeExecution
+from .image_generation.openai import OpenAIImageGeneration
 from .url_context.google import GoogleUrlContext
 
 # Register built-in local tools on import
@@ -15,14 +17,24 @@ register_tool("fetch_url", FetchUrlTool)
 register_tool("json_format", JsonFormatTool)
 
 # Register provider-native tools with default configurations
+
+# OpenAI tools
 register_provider_tool("openai_web_search", lambda: OpenAIWebSearch().spec())
 register_provider_tool(
     "openai_web_search_preview", lambda: OpenAIWebSearch(preview=True).spec()
 )
+register_provider_tool(
+    "openai_code_interpreter", lambda: OpenAICodeInterpreter().spec()
+)
+register_provider_tool(
+    "openai_image_generation", lambda: OpenAIImageGeneration().spec()
+)
 
+# Anthropic tools
 register_provider_tool("anthropic_web_search", lambda: AnthropicWebSearch().spec())
 register_provider_tool("anthropic_web_fetch", lambda: AnthropicWebFetch().spec())
 
+# Google tools
 register_provider_tool("google_search", lambda: GoogleWebSearch().spec())
 register_provider_tool(
     "google_search_retrieval",
@@ -31,14 +43,20 @@ register_provider_tool(
 register_provider_tool("google_code_execution", lambda: GoogleCodeExecution().spec())
 register_provider_tool("google_url_context", lambda: GoogleUrlContext().spec())
 
-# Register alternative web search options with better user experience
+# Register alternative tool names with best defaults for user experience
 register_provider_tool(
     "web_search",
     lambda: GoogleSearchRetrieval(mode="MODE_DYNAMIC", dynamic_threshold=0.7).spec(),
-)  # Use working Google search retrieval
+)  # Default to Google (most reliable)
 register_provider_tool(
     "code_execution", lambda: GoogleCodeExecution().spec()
-)  # Default to Google
+)  # Default to Google (most reliable)
+register_provider_tool(
+    "code_interpreter", lambda: OpenAICodeInterpreter().spec()
+)  # Default to OpenAI (most advanced)
+register_provider_tool(
+    "image_generation", lambda: OpenAIImageGeneration().spec()
+)  # Default to OpenAI (only provider)
 register_provider_tool(
     "url_context", lambda: GoogleUrlContext().spec()
 )  # Default to Google
@@ -47,6 +65,8 @@ __all__ = [
     "FetchUrlTool",
     "JsonFormatTool",
     "OpenAIWebSearch",
+    "OpenAICodeInterpreter",
+    "OpenAIImageGeneration",
     "AnthropicWebSearch",
     "AnthropicWebFetch",
     "GoogleWebSearch",

@@ -22,7 +22,14 @@ class OpenAIProvider(ProviderAdapter):
         return True
 
     def prepare_tools(self, tools: List[ToolSpec]) -> List[Dict[str, Any]]:
-        # Map normalized ToolSpec to OpenAI "tools" entries for both Chat and Responses APIs.
+        """Map normalized ToolSpec to OpenAI tools format for Chat/Responses APIs.
+
+        Handles:
+        - Web search tools (web_search, web_search_preview)
+        - Code Interpreter tool (code_interpreter)
+        - Image Generation tool (image_generation)
+        - Standard function tools (local tools)
+        """
         prepared: List[Dict[str, Any]] = []
         for t in tools:
             if t.provider == "openai" and t.provider_type in {
@@ -42,6 +49,51 @@ class OpenAIProvider(ProviderAdapter):
                         entry["user_location"] = t.provider_config["user_location"]
 
                 prepared.append(entry)
+
+            elif t.provider == "openai" and t.provider_type == "code_interpreter":
+                # OpenAI Code Interpreter tool structure
+                entry: Dict[str, Any] = {"type": "code_interpreter"}
+
+                if t.provider_config:
+                    # Container configuration (auto mode or explicit container ID)
+                    if "container" in t.provider_config:
+                        entry["container"] = t.provider_config["container"]
+
+                    # Optional container name for creation
+                    if "name" in t.provider_config:
+                        entry["name"] = t.provider_config["name"]
+
+                prepared.append(entry)
+
+            elif t.provider == "openai" and t.provider_type == "image_generation":
+                # OpenAI Image Generation tool structure
+                entry: Dict[str, Any] = {"type": "image_generation"}
+
+                if t.provider_config:
+                    # Image generation parameters
+                    for param in [
+                        "size",
+                        "quality",
+                        "format",
+                        "compression",
+                        "background",
+                        "partial_images",
+                    ]:
+                        if param in t.provider_config:
+                            entry[param] = t.provider_config[param]
+
+                    # Multi-turn editing parameters
+                    if "previous_response_id" in t.provider_config:
+                        entry["previous_response_id"] = t.provider_config[
+                            "previous_response_id"
+                        ]
+                    if "image_generation_call_id" in t.provider_config:
+                        entry["image_generation_call_id"] = t.provider_config[
+                            "image_generation_call_id"
+                        ]
+
+                prepared.append(entry)
+
             else:
                 # Standard function tool for local tools
                 prepared.append(
@@ -85,66 +137,201 @@ class OpenAIProvider(ProviderAdapter):
 
     @staticmethod
     def _parse_response(payload: Dict[str, Any]) -> ModelResponse:
-        # Handle both Responses API and Chat Completions API formats
+        """Parse OpenAI API response from either Responses API or Chat Completions API.
 
-        # Check if this is a Responses API response (comes as array of items)
+        Handles:
+        - Responses API: Array format with web_search_call and message items
+        - Chat Completions: Standard choices format with tool calls
+        - Citations and annotations from web search
+        - Error handling for both APIs
+        """
+        # Detect Responses API format (array or has specific fields)
         if (
             isinstance(payload, list)
             or "output" in payload
             or "text" in payload
             or "status" in payload
         ):
-            content = ""
+            return OpenAIProvider._parse_responses_api(payload)
+        else:
+            return OpenAIProvider._parse_chat_completions_api(payload)
 
-            # Handle array format (multiple response items)
-            if isinstance(payload, list):
-                for item in payload:
-                    if item.get("type") == "message" and "content" in item:
-                        # Extract text from message content
-                        for content_item in item["content"]:
-                            if content_item.get("type") == "output_text":
-                                content += content_item.get("text", "")
+    @staticmethod
+    def _parse_responses_api(payload: Any) -> ModelResponse:
+        """Parse OpenAI Responses API response format.
 
-            # Handle single object format
-            elif "output" in payload and payload["output"]:
+        Handles:
+        - Web search calls and citations
+        - Code interpreter calls and file citations
+        - Image generation calls and base64 results
+        - Message content and annotations
+        """
+        content = ""
+        citations = []
+        sources = []
+        file_citations = []
+        web_search_metadata = {}
+        code_interpreter_metadata = {}
+        image_generation_metadata = []
+
+        # Handle array format (standard Responses API output)
+        if isinstance(payload, list):
+            for item in payload:
+                item_type = item.get("type", "")
+
+                # Web search call metadata
+                if item_type == "web_search_call":
+                    web_search_metadata = {
+                        "id": item.get("id"),
+                        "status": item.get("status"),
+                        "action": item.get("action", {}),
+                    }
+
+                    # Extract sources if available
+                    action = item.get("action", {})
+                    if "sources" in action:
+                        sources = action["sources"]
+
+                # Code interpreter call metadata
+                elif item_type == "code_interpreter_call":
+                    code_interpreter_metadata = {
+                        "id": item.get("id"),
+                        "status": item.get("status"),
+                        "container_id": item.get("container_id"),
+                        "code": item.get("code"),
+                        "output": item.get("output"),
+                    }
+
+                # Image generation call metadata and results
+                elif item_type == "image_generation_call":
+                    image_call = {
+                        "id": item.get("id"),
+                        "status": item.get("status"),
+                        "revised_prompt": item.get("revised_prompt"),
+                        "result": item.get("result"),  # Base64-encoded image
+                        "partial_results": item.get(
+                            "partial_results", []
+                        ),  # Streaming partials
+                    }
+
+                    # Add image generation parameters if present
+                    for param in [
+                        "size",
+                        "quality",
+                        "format",
+                        "compression",
+                        "background",
+                    ]:
+                        if param in item:
+                            image_call[param] = item[param]
+
+                    image_generation_metadata.append(image_call)
+
+                # Message content with text and citations
+                elif item_type == "message" and "content" in item:
+                    for content_item in item["content"]:
+                        if content_item.get("type") == "output_text":
+                            content += content_item.get("text", "")
+
+                            # Extract all types of annotations
+                            annotations = content_item.get("annotations", [])
+                            for annotation in annotations:
+                                annotation_type = annotation.get("type")
+
+                                # Web search URL citations
+                                if annotation_type == "url_citation":
+                                    citations.append(
+                                        {
+                                            "type": "url_citation",
+                                            "url": annotation.get("url"),
+                                            "title": annotation.get("title"),
+                                            "start_index": annotation.get(
+                                                "start_index"
+                                            ),
+                                            "end_index": annotation.get("end_index"),
+                                        }
+                                    )
+
+                                # Code interpreter file citations
+                                elif annotation_type == "container_file_citation":
+                                    file_citations.append(
+                                        {
+                                            "type": "container_file_citation",
+                                            "file_id": annotation.get("file_id"),
+                                            "filename": annotation.get("filename"),
+                                            "container_id": annotation.get(
+                                                "container_id"
+                                            ),
+                                            "start_index": annotation.get(
+                                                "start_index"
+                                            ),
+                                            "end_index": annotation.get("end_index"),
+                                            "index": annotation.get("index"),
+                                        }
+                                    )
+
+        # Handle single object format (alternative Responses API format)
+        elif isinstance(payload, dict):
+            if "output" in payload:
                 content = str(payload["output"])
-            elif "text" in payload and payload["text"]:
+            elif "text" in payload:
                 content = str(payload["text"])
             elif "output_text" in payload:
                 content = payload["output_text"]
 
-            # If still no content, check for errors
-            if not content:
-                if (
-                    isinstance(payload, dict)
-                    and "error" in payload
-                    and payload["error"]
-                ):
-                    content = f"API Error: {payload['error']}"
-                else:
-                    content = "No content returned from Responses API"
+        # Handle empty content
+        if not content:
+            if isinstance(payload, dict) and "error" in payload:
+                content = f"API Error: {payload['error']}"
+            else:
+                content = "No content returned from Responses API"
 
-            # Responses API handles tools server-side, so no local tool_calls
-            return ModelResponse(content=content, tool_calls=[], raw=payload)
+        # Build comprehensive metadata
+        metadata = {}
+        if web_search_metadata:
+            metadata["web_search"] = web_search_metadata
+        if code_interpreter_metadata:
+            metadata["code_interpreter"] = code_interpreter_metadata
+        if image_generation_metadata:
+            metadata["image_generation"] = image_generation_metadata
+        if citations:
+            metadata["citations"] = citations
+        if file_citations:
+            metadata["file_citations"] = file_citations
+        if sources:
+            metadata["sources"] = sources
 
-        # Chat Completions API format
+        # Responses API handles tools server-side, so no local tool_calls
+        return ModelResponse(
+            content=content,
+            tool_calls=[],
+            raw=payload,
+            grounding_metadata=metadata if metadata else None,
+        )
+
+    @staticmethod
+    def _parse_chat_completions_api(payload: Dict[str, Any]) -> ModelResponse:
+        """Parse OpenAI Chat Completions API response format."""
         choices = payload.get("choices", [])
         if not choices:
             return ModelResponse(content="", tool_calls=[], raw=payload)
+
         msg = choices[0].get("message", {})
         content = msg.get("content") or ""
         raw_tool_calls = msg.get("tool_calls") or []
 
+        # Parse tool calls
         tool_calls: List[ToolCall] = []
         for i, tc in enumerate(raw_tool_calls):
             fn = (tc or {}).get("function", {})
             name = fn.get("name") or ""
             try:
                 args = json.loads(fn.get("arguments") or "{}")
-            except Exception:
-                args = {"_raw": fn.get("arguments")}
+            except json.JSONDecodeError:
+                args = {"_raw": fn.get("arguments", "")}
+
             tool_calls.append(
-                ToolCall(id=str(tc.get("id") or i), name=name, arguments=args)
+                ToolCall(id=str(tc.get("id") or f"call_{i}"), name=name, arguments=args)
             )
 
         return ModelResponse(content=content, tool_calls=tool_calls, raw=payload)
@@ -155,143 +342,274 @@ class OpenAIProvider(ProviderAdapter):
         config: ModelConfig,
         tools: Optional[List[ToolSpec]] = None,
     ) -> ModelResponse:
-        # Check for web search tools and model compatibility
-        has_web_search = False
-        if tools:
-            for t in tools:
-                if t.provider == "openai" and (
-                    t.provider_type in {"web_search", "web_search_preview"}
-                ):
-                    has_web_search = True
-                    break
+        """Generate a response using OpenAI's Chat Completions or Responses API.
 
-        # Decide whether to use Responses API or Chat Completions
-        use_responses = False
+        Automatically selects the appropriate API based on:
+        1. Explicit api parameter in config
+        2. Presence of web search tools (requires Responses API)
+        3. Model capabilities (search models vs regular models)
+
+        Args:
+            messages: Conversation history
+            config: Model configuration with API preferences
+            tools: Optional tools to make available to the model
+
+        Returns:
+            ModelResponse with content, tool calls, and metadata
+        """
+        # Check for OpenAI native tools that require Responses API
+        has_web_search = self._has_web_search_tools(tools)
+        has_code_interpreter = self._has_code_interpreter_tools(tools)
+        has_image_generation = self._has_image_generation_tools(tools)
+
+        # Determine API to use based on configuration and capabilities
+        use_responses = self._should_use_responses_api(
+            config, has_web_search, has_code_interpreter, has_image_generation
+        )
+
+        if use_responses:
+            return self._generate_responses_api(messages, config, tools)
+        else:
+            return self._generate_chat_api(messages, config, tools)
+
+    def _has_web_search_tools(self, tools: Optional[List[ToolSpec]]) -> bool:
+        """Check if tools include OpenAI web search tools."""
+        if not tools:
+            return False
+        return any(
+            t.provider == "openai"
+            and t.provider_type in {"web_search", "web_search_preview"}
+            for t in tools
+        )
+
+    def _has_code_interpreter_tools(self, tools: Optional[List[ToolSpec]]) -> bool:
+        """Check if tools include OpenAI Code Interpreter tools."""
+        if not tools:
+            return False
+        return any(
+            t.provider == "openai" and t.provider_type == "code_interpreter"
+            for t in tools
+        )
+
+    def _has_image_generation_tools(self, tools: Optional[List[ToolSpec]]) -> bool:
+        """Check if tools include OpenAI Image Generation tools."""
+        if not tools:
+            return False
+        return any(
+            t.provider == "openai" and t.provider_type == "image_generation"
+            for t in tools
+        )
+
+    def _should_use_responses_api(
+        self,
+        config: ModelConfig,
+        has_web_search: bool,
+        has_code_interpreter: bool,
+        has_image_generation: bool,
+    ) -> bool:
+        """Determine whether to use Responses API or Chat Completions API.
+
+        Logic:
+        1. If config.api is explicitly set, respect it
+        2. If Code Interpreter tools present, MUST use Responses API (only available there)
+        3. If Image Generation tools present, MUST use Responses API (only available there)
+        4. If web search tools present, try Responses API (web search requires it)
+        5. If search model (gpt-4o-search-preview), use Chat Completions
+        6. Otherwise default to Chat Completions for broader compatibility
+        """
+        # Explicit API preference always wins
         if config.api == "responses":
-            use_responses = True
-        elif has_web_search:
-            # Models that support web search via Responses API (expanded list)
-            responses_api_models = {
-                "gpt-5",
-                "o4-mini",
-                "o3-deep-research",
-                "o4-mini-deep-research",
-                "gpt-4o",
-                "gpt-4o-mini",
-                "gpt-4",
-                "gpt-4-turbo",
-                "gpt-3.5-turbo",
-                "gpt-4-1106-preview",
-                "gpt-4-0125-preview",
-            }
+            return True
+        if config.api == "chat":
+            return False
 
-            # Models with built-in search via Chat Completions
-            search_models = {"gpt-4o-search-preview", "gpt-4o-mini-search-preview"}
+        # Code Interpreter REQUIRES Responses API (not available in Chat Completions)
+        if has_code_interpreter:
+            return True
 
-            if config.model in responses_api_models:
-                use_responses = True
-            elif config.model in search_models:
-                # These models have built-in web search capabilities
-                # Remove web search tools and let the model handle search automatically
-                tools = [
+        # Image Generation REQUIRES Responses API (not available in Chat Completions)
+        if has_image_generation:
+            return True
+
+        # Web search tools require Responses API, except for built-in search models
+        if has_web_search:
+            # Built-in search models handle web search in Chat Completions
+            if self._is_builtin_search_model(config.model):
+                return False
+            # All other models need Responses API for web search
+            return True
+
+        # Default to Chat Completions for maximum compatibility
+        return False
+
+    def _is_builtin_search_model(self, model: str) -> bool:
+        """Check if model has built-in web search in Chat Completions API."""
+        # Models with native search capabilities (no external tools needed)
+        return model.endswith("-search-preview") or model.endswith("-search")
+
+    def _supports_reasoning(self, model: str) -> bool:
+        """Check if model supports reasoning parameter in Responses API."""
+        # Only reasoning models support the reasoning parameter
+        reasoning_models = {
+            "gpt-5",
+            "o3",
+            "o4-mini",
+            "o3-deep-research",
+            "o4-mini-deep-research",
+        }
+        return model in reasoning_models
+
+    def _supports_temperature_responses(self, model: str) -> bool:
+        """Check if model supports temperature parameter in Responses API."""
+        # Many models in Responses API don't support temperature parameter
+        # Based on API errors, gpt-4o doesn't support temperature in Responses API
+        unsupported_temp_models = {"gpt-4o", "gpt-4o-mini"}
+        return model not in unsupported_temp_models
+
+    def _generate_responses_api(
+        self,
+        messages: List[Message],
+        config: ModelConfig,
+        tools: Optional[List[ToolSpec]],
+    ) -> ModelResponse:
+        """Generate response using OpenAI Responses API."""
+        instructions, user_input = self._map_messages_responses(messages)
+
+        # Build request with all Responses API parameters
+        request: Dict[str, Any] = {
+            "model": config.model,
+            "input": user_input or "",
+        }
+
+        # Add instructions (system prompt for Responses API)
+        if instructions:
+            request["instructions"] = instructions
+        elif config.instructions:
+            request["instructions"] = config.instructions
+
+        # Add tools if provided
+        if tools:
+            # Filter out web search tools for built-in search models
+            if self._is_builtin_search_model(config.model):
+                filtered_tools = [
                     t
-                    for t in (tools or [])
+                    for t in tools
                     if not (
                         t.provider == "openai"
                         and t.provider_type in {"web_search", "web_search_preview"}
                     )
                 ]
-                use_responses = False
+                if filtered_tools:
+                    request["tools"] = self.prepare_tools(filtered_tools)
             else:
-                # Try Responses API for other models (more permissive)
-                use_responses = True
-
-        if use_responses:
-            instructions, user_input = self._map_messages_responses(messages)
-            request: Dict[str, Any] = {
-                "model": config.model,
-                "input": user_input or "",
-            }
-            if instructions:
-                request["instructions"] = instructions
-            if tools:
-                request["tools"] = self.prepare_tools(tools)
-            if config.tool_choice:
-                request["tool_choice"] = config.tool_choice
-            if config.include:
-                request["include"] = list(config.include)
-            if config.reasoning:
-                request["reasoning"] = dict(config.reasoning)
-            if config.temperature is not None:
-                request["temperature"] = config.temperature
-            if config.max_tokens is not None:
-                # Responses API uses max_output_tokens
-                request["max_output_tokens"] = config.max_tokens
-            if config.response_json_schema:
-                request["response_format"] = {
-                    "type": "json_schema",
-                    "json_schema": config.response_json_schema,
-                }
-            # Real call to OpenAI Responses SDK
-            try:
-                import openai
-
-                client = openai.OpenAI(api_key=self.api_key)
-
-                response = client.responses.create(**request)
-                return self._parse_response(response.model_dump())
-            except ImportError:
-                return ModelResponse(
-                    content="OpenAI SDK not installed. Install with: pip install openai",
-                    tool_calls=[],
-                    raw={"error": "sdk_not_installed"},
-                )
-            except AttributeError:
-                # Responses API not available in this SDK version
-                return ModelResponse(
-                    content=f"OpenAI Responses API not available in current SDK. "
-                    f"For web search with model '{config.model}', use: "
-                    f"1) Model 'gpt-4o-search-preview' (built-in search), or "
-                    f"2) Upgrade OpenAI SDK for Responses API support.",
-                    tool_calls=[],
-                    raw={"error": "responses_api_not_available"},
-                )
-            except Exception as e:
-                return ModelResponse(
-                    content=f"OpenAI Responses API error: {str(e)}",
-                    tool_calls=[],
-                    raw={"error": "api_call_failed", "details": str(e)},
-                )
-        else:
-            # Chat Completions shape
-            request: Dict[str, Any] = {
-                "model": config.model,
-                "messages": self._map_messages_chat(messages),
-            }
-            if config.temperature is not None:
-                request["temperature"] = config.temperature
-            if config.top_p is not None:
-                request["top_p"] = config.top_p
-            if config.max_tokens is not None:
-                request["max_tokens"] = config.max_tokens
-
-            if tools:
                 request["tools"] = self.prepare_tools(tools)
 
-            if config.response_json_schema:
-                # Prefer Responses API's json_schema if you wire it; for chat, hint
-                request["response_format"] = {"type": "json_object"}
+        # Add Responses API specific parameters (model-dependent)
+        if config.tool_choice:
+            request["tool_choice"] = config.tool_choice
+        if config.include:
+            request["include"] = list(config.include)
 
-            # Real call to OpenAI Chat Completions SDK
-            try:
-                import openai
+        # Reasoning parameter only supported on reasoning models (gpt-5, o3, etc.)
+        if config.reasoning and self._supports_reasoning(config.model):
+            request["reasoning"] = dict(config.reasoning)
 
-                client = openai.OpenAI(api_key=self.api_key)
-                response = client.chat.completions.create(**request)
-                return self._parse_response(response.model_dump())
-            except ImportError:
-                raise RuntimeError(
-                    "OpenAI SDK not installed. Install with: pip install openai"
-                )
-            except Exception as e:
-                raise RuntimeError(f"OpenAI Chat Completions API call failed: {str(e)}")
+        # Temperature parameter support varies by model in Responses API
+        if config.temperature is not None and self._supports_temperature_responses(
+            config.model
+        ):
+            request["temperature"] = config.temperature
+
+        if config.max_tokens is not None:
+            request["max_output_tokens"] = (
+                config.max_tokens
+            )  # Responses API uses max_output_tokens
+        if config.response_json_schema:
+            request["response_format"] = {
+                "type": "json_schema",
+                "json_schema": config.response_json_schema,
+            }
+
+        # Make API call
+        try:
+            import openai
+
+            client = openai.OpenAI(api_key=self.api_key)
+            response = client.responses.create(**request)
+            return self._parse_response(response.model_dump())
+
+        except ImportError:
+            return ModelResponse(
+                content="OpenAI SDK not installed. Install with: pip install openai",
+                tool_calls=[],
+                raw={"error": "sdk_not_installed"},
+            )
+        except AttributeError:
+            return ModelResponse(
+                content=f"OpenAI Responses API not available in current SDK version. "
+                f"Upgrade OpenAI SDK or use Chat Completions API instead.",
+                tool_calls=[],
+                raw={"error": "responses_api_not_available"},
+            )
+        except Exception as e:
+            return ModelResponse(
+                content=f"OpenAI Responses API error: {str(e)}",
+                tool_calls=[],
+                raw={"error": "api_call_failed", "details": str(e)},
+            )
+
+    def _generate_chat_api(
+        self,
+        messages: List[Message],
+        config: ModelConfig,
+        tools: Optional[List[ToolSpec]],
+    ) -> ModelResponse:
+        """Generate response using OpenAI Chat Completions API."""
+        request: Dict[str, Any] = {
+            "model": config.model,
+            "messages": self._map_messages_chat(messages),
+        }
+
+        # Add standard Chat Completions parameters
+        if config.temperature is not None:
+            request["temperature"] = config.temperature
+        if config.top_p is not None:
+            request["top_p"] = config.top_p
+        if config.max_tokens is not None:
+            request["max_tokens"] = config.max_tokens
+
+        # Add tools (excluding web search for search models - they handle it natively)
+        if tools:
+            if self._is_builtin_search_model(config.model):
+                # Built-in search models handle web search natively, exclude web search tools
+                filtered_tools = [
+                    t
+                    for t in tools
+                    if not (
+                        t.provider == "openai"
+                        and t.provider_type in {"web_search", "web_search_preview"}
+                    )
+                ]
+                if filtered_tools:
+                    request["tools"] = self.prepare_tools(filtered_tools)
+            else:
+                request["tools"] = self.prepare_tools(tools)
+
+        # JSON response format (basic hint for Chat Completions)
+        if config.response_json_schema:
+            request["response_format"] = {"type": "json_object"}
+
+        # Make API call
+        try:
+            import openai
+
+            client = openai.OpenAI(api_key=self.api_key)
+            response = client.chat.completions.create(**request)
+            return self._parse_response(response.model_dump())
+
+        except ImportError:
+            raise RuntimeError(
+                "OpenAI SDK not installed. Install with: pip install openai"
+            )
+        except Exception as e:
+            raise RuntimeError(f"OpenAI Chat Completions API call failed: {str(e)}")

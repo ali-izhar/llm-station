@@ -122,7 +122,11 @@ class Agent:
 
         try:
             resp = self._call_provider(messages=msgs, tools=None, config=config)
-            return AssistantMessage(content=resp.content, tool_calls=resp.tool_calls)
+            return AssistantMessage(
+                content=resp.content,
+                tool_calls=resp.tool_calls,
+                grounding_metadata=resp.grounding_metadata,
+            )
         except Exception as e:
             return AssistantMessage(content=f"Error: {str(e)}", tool_calls=[])
 
@@ -162,7 +166,9 @@ class Agent:
         try:
             resp = self._call_provider(messages=msgs, tools=tool_specs, config=config)
             assistant = AssistantMessage(
-                content=resp.content, tool_calls=resp.tool_calls
+                content=resp.content,
+                tool_calls=resp.tool_calls,
+                grounding_metadata=resp.grounding_metadata,
             )
 
             # If the model made tool calls and we have local tools, try to execute them
@@ -212,7 +218,9 @@ class Agent:
                             messages=msgs, tools=None, config=config
                         )
                         return AssistantMessage(
-                            content=final_resp.content, tool_calls=final_resp.tool_calls
+                            content=final_resp.content,
+                            tool_calls=final_resp.tool_calls,
+                            grounding_metadata=final_resp.grounding_metadata,
                         )
 
                     except Exception as e:
@@ -221,6 +229,7 @@ class Agent:
                             content=assistant.content
                             + f"\n[Tool execution error: {str(e)}]",
                             tool_calls=assistant.tool_calls,
+                            grounding_metadata=assistant.grounding_metadata,
                         )
 
             # Return assistant response (either no tool calls or server-side tools)
