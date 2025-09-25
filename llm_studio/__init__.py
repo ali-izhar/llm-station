@@ -42,6 +42,11 @@ from .batch import (
     GoogleBatchResult,
     GoogleBatchJob,
     GoogleBatchStatus,
+    AnthropicBatchProcessor,
+    AnthropicBatchRequest,
+    AnthropicBatchResult,
+    AnthropicBatchJob,
+    AnthropicBatchStatus,
 )
 
 __all__ = [
@@ -73,4 +78,9 @@ __all__ = [
     "GoogleBatchResult",
     "GoogleBatchJob",
     "GoogleBatchStatus",
+    "AnthropicBatchProcessor",
+    "AnthropicBatchRequest",
+    "AnthropicBatchResult",
+    "AnthropicBatchJob",
+    "AnthropicBatchStatus",
 ]

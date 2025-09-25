@@ -423,18 +423,37 @@ class Agent:
                                     )
                                 )
 
-                        # Add tool results and try one more call
-                        msgs.extend(tool_results)
+                        # For Anthropic, don't send tool results back - causes tool_use_id mismatch
+                        if config.provider == "anthropic":
+                            # Just return the original response with tool execution appended to content
+                            tool_outputs = []
+                            for result in tool_results:
+                                tool_outputs.append(
+                                    f"[{result.name} output: {result.content}]"
+                                )
 
-                        # Final call with tool results
-                        final_resp = self._call_provider(
-                            messages=msgs, tools=None, config=config
-                        )
-                        return AssistantMessage(
-                            content=final_resp.content,
-                            tool_calls=final_resp.tool_calls,
-                            grounding_metadata=final_resp.grounding_metadata,
-                        )
+                            combined_content = assistant.content
+                            if tool_outputs:
+                                combined_content += "\n\n" + "\n".join(tool_outputs)
+
+                            return AssistantMessage(
+                                content=combined_content,
+                                tool_calls=assistant.tool_calls,
+                                grounding_metadata=assistant.grounding_metadata,
+                            )
+                        else:
+                            # For other providers, send tool results back normally
+                            msgs.extend(tool_results)
+
+                            # Final call with tool results
+                            final_resp = self._call_provider(
+                                messages=msgs, tools=None, config=config
+                            )
+                            return AssistantMessage(
+                                content=final_resp.content,
+                                tool_calls=final_resp.tool_calls,
+                                grounding_metadata=final_resp.grounding_metadata,
+                            )
 
                     except Exception as e:
                         # If tool execution fails, return original response

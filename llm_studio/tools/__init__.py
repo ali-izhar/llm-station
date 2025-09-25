@@ -9,6 +9,7 @@ from .web_search.openai import OpenAIWebSearch
 from .web_search.anthropic import AnthropicWebSearch
 from .web_search.google import GoogleWebSearch, GoogleSearchRetrieval
 from .web_fetch.anthropic import AnthropicWebFetch
+from .code_execution.anthropic import AnthropicCodeExecution
 from .code_execution.openai import OpenAICodeInterpreter
 from .code_execution.google import GoogleCodeExecution
 from .image_generation.openai import OpenAIImageGeneration
@@ -35,7 +36,8 @@ register_provider_tool(
 
 # Anthropic tools
 register_provider_tool("anthropic_web_search", lambda: AnthropicWebSearch().spec())
-register_provider_tool("anthropic_web_fetch", lambda: AnthropicWebFetch().spec())
+# register_provider_tool("anthropic_web_fetch", lambda: AnthropicWebFetch().spec())  # Not supported in current API
+# register_provider_tool("anthropic_code_execution", lambda: AnthropicCodeExecution().spec())  # Requires beta access
 
 # Google tools
 register_provider_tool("google_search", lambda: GoogleWebSearch().spec())
@@ -75,6 +77,7 @@ __all__ = [
     "OpenAIImageGeneration",
     "AnthropicWebSearch",
     "AnthropicWebFetch",
+    "AnthropicCodeExecution",
     "GoogleWebSearch",
     "GoogleSearchRetrieval",
     "GoogleCodeExecution",
