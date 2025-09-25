@@ -4,19 +4,49 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-studio"
-version = "0.0.1"
-description = "Provider-agnostic agent framework with tools"
+version = "1.0.0"
+description = "Provider-agnostic agent framework with smart tools for OpenAI, Anthropic, and Google"
 readme = "README.md"
 requires-python = ">=3.9"
-authors = [{ name="Your Team" }]
-license = { text = "Proprietary" }
-keywords = ["llm", "agents", "tools", "openai", "anthropic", "gemini"]
+authors = [{ name="LLM Studio Team", email="team@llmstudio.dev" }]
+license = "MIT"
+keywords = ["llm", "agents", "tools", "openai", "anthropic", "gemini", "smart-tools", "ai", "chatgpt", "claude", "gemini"]
 classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3 :: Only",
-  "License :: Other/Proprietary License",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10", 
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "Operating System :: OS Independent",
 ]
+
+# Optional dependencies for different providers
+dependencies = [
+  "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.40.0"]
+anthropic = ["anthropic>=0.31.0"] 
+google = ["google-genai>=0.3.0"]
+all = ["openai>=1.40.0", "anthropic>=0.31.0", "google-genai>=0.3.0"]
+dev = [
+  "pytest>=7.2", 
+  "python-dotenv>=1.0.0",
+  "openai>=1.40.0", 
+  "anthropic>=0.31.0", 
+  "google-genai>=0.3.0"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/your-username/llm_studio"
+"Bug Reports" = "https://github.com/your-username/llm_studio/issues"
+"Source" = "https://github.com/your-username/llm_studio"
+"Documentation" = "https://github.com/your-username/llm_studio#readme"
 
 [tool.setuptools.packages.find]
 where = ["."]

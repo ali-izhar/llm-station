@@ -1,0 +1,20 @@
+# Include documentation and configuration files
+include README.md
+include OPENAI.md
+include GOOGLE.md  
+include CLAUDE.md
+include pyproject.toml
+include requirements.txt
+
+# Include examples
+recursive-include examples *.py
+
+# Exclude development files
+exclude test_smart_tools.py
+exclude quickstart_batch.jsonl
+recursive-exclude logs *
+recursive-exclude .pytest_cache *
+recursive-exclude __pycache__ *
+recursive-exclude *.egg-info *
+exclude .env
+exclude .env.example
