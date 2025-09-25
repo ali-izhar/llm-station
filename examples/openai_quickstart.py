@@ -4,13 +4,20 @@
 import os
 from dotenv import load_dotenv
 
-from llm_studio import Agent, setup_logging, LogLevel
+from llm_studio import (
+    Agent,
+    setup_logging,
+    LogLevel,
+    OpenAIBatchProcessor,
+    SystemMessage,
+    UserMessage,
+)
 from llm_studio.tools.registry import list_all_tools
+from llm_studio.cli.logging_cli import generate_log_filename
 
 
 def main():
     """Quick OpenAI setup and testing."""
-    # Load API key
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -18,8 +25,19 @@ def main():
         print("   Add: OPENAI_API_KEY=your-key-here")
         return
 
-    # Enable logging
-    setup_logging(level=LogLevel.INFO)
+    # Enable logging with automatic file creation
+    os.makedirs("logs", exist_ok=True)
+    print("Created logs/ directory")
+
+    # Setup logging with file output
+    logger = setup_logging(level=LogLevel.INFO)
+    log_file_path = generate_log_filename("openai", "gpt-4o-mini")
+
+    # Create log file for session
+    log_file = open(log_file_path, "w", encoding="utf-8")
+    logger.log_file = log_file
+
+    print(f"Logging enabled: {log_file_path}")
 
     # Create agent
     agent = Agent(
@@ -38,13 +56,15 @@ def main():
     for tool in openai_tools:
         print(f"   - {tool}")
 
+    print(f"\nRunning comprehensive tests...")
+
     # Test 1: Basic chat
-    print(f"\n💬 Test 1: Basic Chat")
+    print(f"\nTest 1: Basic Chat")
     response = agent.generate("What is 2 + 2?")
     print(f"Response: {response.content}")
 
     # Test 2: Web search
-    print(f"\n🔍 Test 2: Web Search")
+    print(f"\nTest 2: Web Search")
     response = agent.generate(
         "What's happening in AI news today?", tools=["openai_web_search"]
     )
@@ -53,7 +73,7 @@ def main():
         print(f"✓ Search metadata: {list(response.grounding_metadata.keys())}")
 
     # Test 3: Code execution
-    print(f"\n🐍 Test 3: Code Execution")
+    print(f"\nTest 3: Code Execution")
     response = agent.generate(
         "Calculate the factorial of 5 using Python", tools=["openai_code_interpreter"]
     )
@@ -62,7 +82,7 @@ def main():
         print(f"✓ Code metadata: {list(response.grounding_metadata.keys())}")
 
     # Test 4: Image generation (try different compatible models)
-    print(f"\n🎨 Test 4: Image Generation")
+    print(f"\nTest 4: Image Generation")
 
     # Try with different models that support image generation
     image_models = ["gpt-5", "gpt-4.1", "gpt-4o"]
@@ -98,22 +118,62 @@ def main():
                     image_data = base64.b64decode(images[0]["result"])
                     with open(f"test_circle_{model.replace('-', '_')}.png", "wb") as f:
                         f.write(image_data)
-                    print(f"   💾 Saved test_circle_{model.replace('-', '_')}.png")
+                    print(f"    Saved test_circle_{model.replace('-', '_')}.png")
                     break  # Stop after first success
             else:
-                print(f"   ⚠ {model}: No image metadata generated")
+                print(f"    {model}: No image metadata generated")
 
         except Exception as e:
             print(f"   ❌ {model}: {str(e)[:100]}...")
             continue
     else:
         print(
-            "   ℹ️ Image generation may require specific model access or API organization verification"
+            "   Image generation may require specific model access or API organization verification"
         )
 
+    # Test 5: Batch Processing (demo)
+    print(f"\nTest 5: Batch Processing Demo")
+    try:
+        processor = OpenAIBatchProcessor(api_key=api_key)
+
+        # Create sample batch tasks
+        sample_texts = [
+            "Summarize: The future of AI is bright with many opportunities.",
+            "Categorize: This is a positive review of our AI product.",
+            "Analyze: Customer feedback shows high satisfaction with our service.",
+        ]
+
+        tasks = []
+        for i, text in enumerate(sample_texts):
+            task = processor.create_task(
+                custom_id=f"quickstart-{i}",
+                model="gpt-4o-mini",
+                messages=[
+                    SystemMessage("You are a helpful assistant."),
+                    UserMessage(text),
+                ],
+                temperature=0.1,
+            )
+            tasks.append(task)
+
+        # Create batch file (don't submit to avoid costs)
+        batch_file = processor.create_batch_file(tasks, "quickstart_batch.jsonl")
+        print(f"✅ Created batch file: {batch_file}")
+        print(f"    {len(tasks)} tasks ready for batch processing")
+        print(f"    Submit with: processor.submit_batch(tasks)")
+
+    except Exception as e:
+        print(f"Batch processing demo: {e}")
+
+    # Close log file
+    if logger.log_file:
+        logger.log_file.close()
+        logger.log_file = None
+
     print(f"\n✅ OpenAI quickstart complete!")
-    print(f"📁 Check logs/ directory for session logs")
-    print(f"📖 See OPENAI.md for full documentation")
+    print(f"Session logged to: {log_file_path}")
+    print(f"Batch example: quickstart_batch.jsonl")
+    print(f"Full documentation: OPENAI.md")
 
 
 if __name__ == "__main__":
