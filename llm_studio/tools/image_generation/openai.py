@@ -1,6 +1,6 @@
+#!/usr/bin/env python3
 from __future__ import annotations
-
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
 from ...schemas.tooling import ToolSpec
 
@@ -48,12 +48,10 @@ class OpenAIImageGeneration:
         partial_images: Number of streaming partial images (1-3)
 
     Supported Models:
-        Mainline models that can call image generation:
-        - gpt-4o, gpt-4o-mini
-        - gpt-4.1, gpt-4.1-mini, gpt-4.1-nano
-        - o3
+        Compatible with OpenAI models that support image generation.
+        Refer to OpenAI documentation for current model availability.
 
-        Image generation is always performed by gpt-image-1 model.
+        Image generation is performed by OpenAI's specialized image model.
 
     Examples:
         Basic generation:

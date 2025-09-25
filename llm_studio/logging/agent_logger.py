@@ -1,27 +1,14 @@
-"""
-Agent Logging System
-
-Provides comprehensive logging of agent interactions including:
-- Input queries and system prompts
-- Tool selection and execution
-- Tool call inputs and outputs
-- Provider API calls and responses
-- Final results and metadata
-
-Supports multiple output formats and verbosity levels.
-"""
+#!/usr/bin/env python3
+"""Agent Logging System"""
 
 from __future__ import annotations
 
 import json
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union, TextIO
+from typing import Any, Dict, List, Optional, TextIO
 from dataclasses import dataclass, asdict
 from enum import Enum
-
-from ..schemas.messages import Message, ToolCall
-from ..schemas.tooling import ToolResult, ToolSpec
 
 
 class LogLevel(Enum):
@@ -267,7 +254,7 @@ class AgentLogger:
     def _log_session_start_console(self) -> None:
         """Log session start to console with colors."""
         print(
-            f"\n{self.colors['bold']}{self.colors['blue']}🤖 AGENT SESSION STARTED{self.colors['end']}"
+            f"\n{self.colors['bold']}{self.colors['blue']} AGENT SESSION STARTED{self.colors['end']}"
         )
         print(f"{self.colors['cyan']}Session ID:{self.colors['end']} {self.session_id}")
         print(
@@ -293,7 +280,7 @@ class AgentLogger:
         if not self.log_file:
             return
 
-        self.log_file.write("\n🤖 AGENT SESSION STARTED\n")
+        self.log_file.write("\nAGENT SESSION STARTED\n")
         self.log_file.write(f"Session ID: {self.session_id}\n")
         self.log_file.write(f"Provider: {self.current_session.provider}\n")
         self.log_file.write(f"Model: {self.current_session.model}\n")
@@ -590,7 +577,7 @@ class AgentLogger:
         if not self.log_file:
             return
 
-        self.log_file.write(f"\n✅ SESSION COMPLETED\n")
+        self.log_file.write(f"\nSESSION COMPLETED\n")
         self.log_file.write(f"Final Result:\n")
         self.log_file.write(f"  {self.current_session.final_result}\n")
 

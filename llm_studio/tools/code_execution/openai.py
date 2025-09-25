@@ -1,5 +1,5 @@
+#!/usr/bin/env python3
 from __future__ import annotations
-
 from typing import Any, Dict, List, Optional, Union
 
 from ...schemas.tooling import ToolSpec
@@ -55,7 +55,7 @@ class OpenAICodeInterpreter:
             tool = OpenAICodeInterpreter(container_type="cntr_abc123")
 
     Usage with Agent:
-        agent = Agent(provider="openai", model="gpt-4.1", api="responses")
+        agent = Agent(provider="openai", model="your-model", api="responses")
         response = agent.generate(
             "Calculate 4 * 3.82, then find its square root twice",
             tools=["openai_code_interpreter"]

@@ -1,9 +1,5 @@
-"""
-CLI interface for agent logging system.
-
-Provides command-line options for enabling and configuring logging
-during agent interactions.
-"""
+#!/usr/bin/env python3
+"""CLI interface for agent logging system."""
 
 import argparse
 import os
@@ -11,7 +7,7 @@ import sys
 from datetime import datetime
 from typing import Optional
 
-from ..logging import setup_logging, LogLevel, LogFormat, get_logger
+from ..logging import setup_logging, LogLevel, LogFormat
 
 
 def add_logging_args(parser: argparse.ArgumentParser) -> None:
@@ -26,6 +22,7 @@ def add_logging_args(parser: argparse.ArgumentParser) -> None:
     )
 
     logging_group.add_argument(
+        "-ll",
         "--log-level",
         choices=["error", "warn", "info", "debug"],
         default="info",
@@ -33,6 +30,7 @@ def add_logging_args(parser: argparse.ArgumentParser) -> None:
     )
 
     logging_group.add_argument(
+        "-lft",
         "--log-format",
         choices=["console", "json", "markdown"],
         default="console",
@@ -113,14 +111,14 @@ def configure_logging_from_args(
     if format == LogFormat.CONSOLE:
         # Console format: show on screen AND save clean version to file
         logger.log_file = log_file
-        print(f"📁 Logging enabled: {log_file_path}")
+        print(f"Logging enabled: {log_file_path}")
 
         # Return cleanup function
         def cleanup():
             if logger.log_file:
                 logger.log_file.close()
                 logger.log_file = None
-            print(f"✅ Session saved: {log_file_path}")
+            print(f"Session saved: {log_file_path}")
 
         return cleanup
 
@@ -133,7 +131,7 @@ def configure_logging_from_args(
         def cleanup():
             sys.stdout = original_stdout
             log_file.close()
-            print(f"✅ Logs saved to {log_file_path}")
+            print(f"Logs saved to {log_file_path}")
 
         return cleanup
 
@@ -166,7 +164,7 @@ def parse_logging_args(args: Optional[list] = None) -> argparse.Namespace:
 
 def demo_cli_logging():
     """Demo CLI logging interface."""
-    print("🔍 Agent Logging CLI Demo")
+    print("Agent Logging CLI Demo")
     print("=" * 40)
 
     # Simulate different CLI configurations
@@ -186,14 +184,14 @@ def demo_cli_logging():
             cleanup = configure_logging_from_args(args, "openai", "gpt-4o-mini")
 
             print(
-                f"✅ Logging configured: level={args.log_level}, format={args.log_format}"
+                f"Logging configured: level={args.log_level}, format={args.log_format}"
             )
 
             if cleanup:
                 cleanup()
 
         except Exception as e:
-            print(f"❌ Configuration failed: {e}")
+            print(f"Configuration failed: {e}")
 
 
 if __name__ == "__main__":

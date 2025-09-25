@@ -1,6 +1,8 @@
+#!/usr/bin/env python3
+"""Run agents with tools"""
+
 from __future__ import annotations
 
-import json
 import time
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -46,15 +48,9 @@ class Agent:
             temperature=temperature,
             top_p=top_p,
             max_tokens=max_tokens,
+            provider_kwargs=provider_kwargs if provider_kwargs else None,
         )
         self._system_prompt = system_prompt
-
-    def _tool_specs_from_names(self, tool_names: Sequence[str]) -> List[ToolSpec]:
-        specs: List[ToolSpec] = []
-        for name in tool_names:
-            t = get_tool(name)
-            specs.append(t.spec())
-        return specs
 
     def _execute_tool(self, call: ToolCall) -> ToolResult:
         """Execute a tool call with logging."""
@@ -126,37 +122,31 @@ class Agent:
                 {
                     "temperature": config.temperature,
                     "max_tokens": config.max_tokens,
-                    "api": getattr(config, "api", None),
-                    "reasoning": getattr(config, "reasoning", None),
-                    "tool_choice": getattr(config, "tool_choice", None),
+                    "provider_kwargs": config.provider_kwargs,
                 }
             )
 
-        # Determine API type based on provider logic
-        api_type = "chat_completions"
-        if hasattr(self._provider, "_should_use_responses_api"):
-            # For OpenAI, check if it will use Responses API
-            if self.provider_name == "openai":
-                has_web_search = any(
-                    tool.provider == "openai"
-                    and tool.provider_type in {"web_search", "web_search_preview"}
-                    for tool in (tools or [])
-                )
-                has_code_interpreter = any(
-                    tool.provider == "openai"
-                    and tool.provider_type == "code_interpreter"
-                    for tool in (tools or [])
-                )
-                has_image_generation = any(
-                    tool.provider == "openai"
-                    and tool.provider_type == "image_generation"
-                    for tool in (tools or [])
-                )
+        # Determine API type based on provider (provider-agnostic)
+        api_type = "default"
+        if hasattr(self._provider, "get_api_type"):
+            api_type = self._provider.get_api_type(config, tools)
+        elif hasattr(self._provider, "_should_use_responses_api"):
+            # Legacy support for OpenAI provider
+            if hasattr(self._provider, "_has_web_search_tools"):
+                has_web_search = self._provider._has_web_search_tools(tools)
+                has_code_interpreter = getattr(
+                    self._provider, "_has_code_interpreter_tools", lambda x: False
+                )(tools)
+                has_image_generation = getattr(
+                    self._provider, "_has_image_generation_tools", lambda x: False
+                )(tools)
 
                 if self._provider._should_use_responses_api(
                     config, has_web_search, has_code_interpreter, has_image_generation
                 ):
                     api_type = "responses_api"
+                else:
+                    api_type = "chat_completions"
 
         try:
             # Log provider call start
@@ -339,7 +329,7 @@ class Agent:
         structured_schema: Optional[Dict[str, Any]] = None,
         max_tool_rounds: int = 4,
     ) -> AssistantMessage:
-        """Production-ready tool calling implementation with fallback handling."""
+        """Tool calling implementation with fallback handling."""
 
         msgs: List[Message] = [UserMessage(prompt)]
         msgs = self._append_system(msgs)

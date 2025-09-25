@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from .registry import register_tool, register_provider_tool
 from .fetch_url import FetchUrlTool
 from .json_format import JsonFormatTool

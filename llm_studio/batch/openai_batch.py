@@ -1,21 +1,11 @@
-"""
-OpenAI Batch API Implementation
+#!/usr/bin/env python3
 
-Provides comprehensive batch processing capabilities for OpenAI models with:
+"""
+OpenAI Batch API Implementation.
 - Async batch job creation and management
 - Lower costs and higher rate limits compared to regular API
-- Support for all Chat Completions parameters and models
 - 24-hour completion window with potential faster processing
 - File upload/download management
-- Status monitoring and result retrieval
-
-Ideal use cases:
-- Content tagging, captioning, or enrichment
-- Support ticket categorization
-- Sentiment analysis on large datasets
-- Document summarization or translation
-- Image captioning with vision models
-- Data processing workflows
 """
 
 from __future__ import annotations
@@ -137,7 +127,7 @@ class OpenAIBatchProcessor:
 
         Args:
             custom_id: Unique identifier for this task
-            model: OpenAI model to use (e.g., "gpt-4o-mini")
+            model: OpenAI model to use (e.g., any supported OpenAI model)
             messages: List of messages or Message objects
             **kwargs: Additional Chat Completions parameters
 
@@ -148,7 +138,7 @@ class OpenAIBatchProcessor:
             # Simple text task
             task = processor.create_task(
                 custom_id="movie-1",
-                model="gpt-4o-mini",
+                model="your-model",
                 messages=[
                     SystemMessage("You are a movie categorizer"),
                     UserMessage("Categorize this movie: The Godfather")
@@ -160,7 +150,7 @@ class OpenAIBatchProcessor:
             # Vision task with image
             task = processor.create_task(
                 custom_id="image-1",
-                model="gpt-4o-mini",
+                model="your-model",
                 messages=[
                     SystemMessage("Caption this image briefly"),
                     UserMessage([
@@ -510,7 +500,7 @@ class OpenAIBatchProcessor:
         self,
         texts: List[str],
         system_prompt: str,
-        model: str = "gpt-4o-mini",
+        model: str,
         response_format: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> str:
@@ -530,7 +520,7 @@ class OpenAIBatchProcessor:
             file_path = processor.process_text_batch(
                 texts=["Text 1", "Text 2", "Text 3"],
                 system_prompt="Categorize this text",
-                model="gpt-4o-mini",
+                model="your-model",
                 response_format={"type": "json_object"}
             )
         """
@@ -552,7 +542,7 @@ class OpenAIBatchProcessor:
         image_urls: List[str],
         texts: List[str],
         system_prompt: str,
-        model: str = "gpt-4o-mini",
+        model: str,
         **kwargs: Any,
     ) -> str:
         """Process a batch of images with text prompts.
@@ -662,13 +652,16 @@ class OpenAIBatchProcessor:
 
 
 def create_movie_categorization_batch(
-    movie_descriptions: List[str], processor: OpenAIBatchProcessor
+    movie_descriptions: List[str],
+    processor: OpenAIBatchProcessor,
+    model: str = "gpt-4o-mini",
 ) -> str:
     """Create a batch for movie categorization (example from cookbook).
 
     Args:
         movie_descriptions: List of movie descriptions
         processor: OpenAIBatchProcessor instance
+        model: OpenAI model to use for processing
 
     Returns:
         Batch file path
@@ -689,14 +682,17 @@ Movies can have several categories, but try to keep it under 3-4. Only mention t
     return processor.process_text_batch(
         texts=movie_descriptions,
         system_prompt=system_prompt,
-        model="gpt-4o-mini",
+        model=model,
         response_format={"type": "json_object"},
         temperature=0.1,
     )
 
 
 def create_image_captioning_batch(
-    image_urls: List[str], titles: List[str], processor: OpenAIBatchProcessor
+    image_urls: List[str],
+    titles: List[str],
+    processor: OpenAIBatchProcessor,
+    model: str = "gpt-4o-mini",
 ) -> str:
     """Create a batch for image captioning (example from cookbook).
 
@@ -704,6 +700,7 @@ def create_image_captioning_batch(
         image_urls: List of image URLs
         titles: List of item titles/names
         processor: OpenAIBatchProcessor instance
+        model: OpenAI model to use for processing
 
     Returns:
         Batch file path
@@ -721,7 +718,7 @@ Keep it short and to the point.
         image_urls=image_urls,
         texts=titles,
         system_prompt=system_prompt,
-        model="gpt-4o-mini",
+        model=model,
         temperature=0.2,
         max_tokens=300,
     )

@@ -1,6 +1,6 @@
+#!/usr/bin/env python3
 from __future__ import annotations
-
-from typing import Dict, Type, Callable, Union
+from typing import Dict, Type, Callable
 
 from .base import Tool
 from ..schemas.tooling import ToolSpec

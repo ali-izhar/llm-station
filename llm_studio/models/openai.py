@@ -1,19 +1,36 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import json
 from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
 
 from .base import ModelConfig, ProviderAdapter
-from ..schemas.messages import AssistantMessage, Message, ModelResponse, ToolCall
+from ..schemas.messages import Message, ModelResponse, ToolCall
 from ..schemas.tooling import ToolSpec
+
+
+@dataclass
+class OpenAIConfig:
+    """OpenAI-specific configuration parameters."""
+
+    # API selection
+    api: Optional[str] = None  # "responses" or "chat"
+    # Responses API specific
+    tool_choice: Optional[str] = None
+    include: Optional[List[str]] = None  # e.g., ["web_search_call.action.sources"]
+    reasoning: Optional[Dict[str, Any]] = (
+        None  # e.g., {"effort": "low"|"medium"|"high"}
+    )
+    instructions: Optional[str] = None  # Custom instructions for Responses API
 
 
 class OpenAIProvider(ProviderAdapter):
     """Adapter for OpenAI APIs (Chat Completions and Responses).
 
-    This adapter only shapes requests and expected outputs. Actual network I/O
-    is intentionally omitted in this scaffold. Replace the "_request" method
-    with calls to the OpenAI SDK or HTTP client as needed.
+    Automatically selects the appropriate API based on model capabilities and tools:
+    - Chat Completions API: Default for standard interactions and built-in search models
+    - Responses API: Required for web search, code interpreter, and image generation tools
     """
 
     name = "openai"
@@ -467,10 +484,15 @@ class OpenAIProvider(ProviderAdapter):
         5. If search model (gpt-4o-search-preview), use Chat Completions
         6. Otherwise default to Chat Completions for broader compatibility
         """
+        # Extract OpenAI-specific API preference
+        api_preference = None
+        if config.provider_kwargs:
+            api_preference = config.provider_kwargs.get("api")
+
         # Explicit API preference always wins
-        if config.api == "responses":
+        if api_preference == "responses":
             return True
-        if config.api == "chat":
+        if api_preference == "chat":
             return False
 
         # Code Interpreter REQUIRES Responses API (not available in Chat Completions)
@@ -492,6 +514,19 @@ class OpenAIProvider(ProviderAdapter):
         # Default to Chat Completions for maximum compatibility
         return False
 
+    def get_api_type(self, config: ModelConfig, tools: Optional[List[ToolSpec]]) -> str:
+        """Get the API type that will be used for this request (provider-agnostic interface)."""
+        has_web_search = self._has_web_search_tools(tools)
+        has_code_interpreter = self._has_code_interpreter_tools(tools)
+        has_image_generation = self._has_image_generation_tools(tools)
+
+        if self._should_use_responses_api(
+            config, has_web_search, has_code_interpreter, has_image_generation
+        ):
+            return "responses_api"
+        else:
+            return "chat_completions"
+
     def _is_builtin_search_model(self, model: str) -> bool:
         """Check if model has built-in web search in Chat Completions API."""
         # Models with native search capabilities (no external tools needed)
@@ -499,22 +534,16 @@ class OpenAIProvider(ProviderAdapter):
 
     def _supports_reasoning(self, model: str) -> bool:
         """Check if model supports reasoning parameter in Responses API."""
-        # Only reasoning models support the reasoning parameter
-        reasoning_models = {
-            "gpt-5",
-            "o3",
-            "o4-mini",
-            "o3-deep-research",
-            "o4-mini-deep-research",
-        }
-        return model in reasoning_models
+        # Dynamic detection based on model naming patterns (future-proof)
+        reasoning_patterns = ["gpt-5", "o3", "o4", "deep-research"]
+        return any(pattern in model for pattern in reasoning_patterns)
 
     def _supports_temperature_responses(self, model: str) -> bool:
         """Check if model supports temperature parameter in Responses API."""
-        # Many models in Responses API don't support temperature parameter
-        # Based on API errors, gpt-4o doesn't support temperature in Responses API
-        unsupported_temp_models = {"gpt-4o", "gpt-4o-mini"}
-        return model not in unsupported_temp_models
+        # Dynamic detection: many current models don't support temperature in Responses API
+        # Pattern-based detection instead of hardcoded lists
+        unsupported_patterns = ["gpt-4o"]  # Base pattern
+        return not any(pattern in model for pattern in unsupported_patterns)
 
     def _generate_responses_api(
         self,
@@ -525,6 +554,13 @@ class OpenAIProvider(ProviderAdapter):
         """Generate response using OpenAI Responses API."""
         instructions, user_input = self._map_messages_responses(messages)
 
+        # Extract OpenAI-specific parameters from provider_kwargs
+        openai_config = OpenAIConfig()
+        if config.provider_kwargs:
+            for key, value in config.provider_kwargs.items():
+                if hasattr(openai_config, key):
+                    setattr(openai_config, key, value)
+
         # Build request with all Responses API parameters
         request: Dict[str, Any] = {
             "model": config.model,
@@ -534,8 +570,8 @@ class OpenAIProvider(ProviderAdapter):
         # Add instructions (system prompt for Responses API)
         if instructions:
             request["instructions"] = instructions
-        elif config.instructions:
-            request["instructions"] = config.instructions
+        elif openai_config.instructions:
+            request["instructions"] = openai_config.instructions
 
         # Add tools if provided
         if tools:
@@ -555,14 +591,14 @@ class OpenAIProvider(ProviderAdapter):
                 request["tools"] = self.prepare_tools(tools)
 
         # Add Responses API specific parameters (model-dependent)
-        if config.tool_choice:
-            request["tool_choice"] = config.tool_choice
-        if config.include:
-            request["include"] = list(config.include)
+        if openai_config.tool_choice:
+            request["tool_choice"] = openai_config.tool_choice
+        if openai_config.include:
+            request["include"] = list(openai_config.include)
 
         # Reasoning parameter only supported on reasoning models (gpt-5, o3, etc.)
-        if config.reasoning and self._supports_reasoning(config.model):
-            request["reasoning"] = dict(config.reasoning)
+        if openai_config.reasoning and self._supports_reasoning(config.model):
+            request["reasoning"] = dict(openai_config.reasoning)
 
         # Temperature parameter support varies by model in Responses API
         if config.temperature is not None and self._supports_temperature_responses(

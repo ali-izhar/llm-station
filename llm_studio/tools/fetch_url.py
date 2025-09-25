@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import urllib.request
-from typing import Any, Dict
+from typing import Any
 
 from .base import Tool, json_dumps
 from ..schemas.tooling import ToolResult, ToolSpec

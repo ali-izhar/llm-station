@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import abc
@@ -10,6 +11,8 @@ from ..schemas.tooling import ToolSpec
 
 @dataclass
 class ModelConfig:
+    """Provider-agnostic model configuration."""
+
     provider: str
     model: str
     temperature: Optional[float] = None
@@ -17,18 +20,10 @@ class ModelConfig:
     max_tokens: Optional[int] = None
     # Structured output support (JSON Schema). Providers may ignore if unsupported.
     response_json_schema: Optional[Dict[str, Any]] = None
-    # Whether to stream (not implemented in this skeleton)
+    # Whether to stream (not implemented yet)
     stream: bool = False
-    # Optional: prefer a specific API flavor if applicable (e.g., "responses" vs "chat")
-    api: Optional[str] = None
-    # OpenAI Responses API-specific optional fields
-    tool_choice: Optional[str] = None
-    include: Optional[List[str]] = None  # e.g., ["web_search_call.action.sources"]
-    reasoning: Optional[Dict[str, Any]] = (
-        None  # e.g., {"effort": "low"|"medium"|"high"}
-    )
-    # Additional OpenAI-specific parameters for advanced usage
-    instructions: Optional[str] = None  # Custom instructions for Responses API
+    # Provider-specific parameters (each provider handles its own)
+    provider_kwargs: Optional[Dict[str, Any]] = None
 
 
 class ProviderAdapter(abc.ABC):

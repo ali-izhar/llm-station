@@ -1,7 +1,8 @@
-from __future__ import annotations
+#!/usr/bin/env python3
 
-import re
+from __future__ import annotations
 from typing import Any, Dict, List, Optional
+import re
 
 from ...schemas.tooling import ToolSpec
 
@@ -31,8 +32,8 @@ class OpenAIWebSearch:
         preview: Whether to use web_search_preview instead of web_search
 
     Limitations:
-        - Not supported in gpt-5 with minimal reasoning, gpt-4.1-nano
-        - Context window limited to 128K tokens even for larger context models
+        - Some models may not support all features (refer to OpenAI documentation)
+        - Context window limited to 128K tokens
         - User location not supported for deep research models
         - Domain filtering only available with web_search tool (not web_search_preview)
 
