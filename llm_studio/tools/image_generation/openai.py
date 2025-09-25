@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""OpenAI Image Generation Tools (Responses API)"""
-
 from __future__ import annotations
 from typing import Any, Dict, Optional
 

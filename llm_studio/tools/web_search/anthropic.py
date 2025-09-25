@@ -1,5 +1,5 @@
+#!/usr/bin/env python3
 from __future__ import annotations
-
 from typing import Any, Dict, Optional
 
 from ...schemas.tooling import ToolSpec

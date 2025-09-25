@@ -94,10 +94,10 @@ print(f"Available tools: {list(list_all_tools().keys())}")
 ## 🤖 Supported Providers
 - **`openai`** — Chat Completions + Responses API (with web search)
 - **`anthropic`** — Claude Messages API (with web search & web fetch)
-- **`google`** — Gemini API (with search, code execution, URL context)
+- **`google`** — Gemini API with 2.0+ search grounding (search, code execution, URL context, batch processing)
 - **`mock`** — offline adapter for local development and testing
 
-## 🔧 Built-in Tools (10 Available)
+## 🔧 Built-in Tools (11 Available)
 
 **All tools accessible by simple string names - no imports needed!**
 
@@ -115,10 +115,11 @@ print(f"Available tools: {list(list_all_tools().keys())}")
 - `"anthropic_web_fetch"` — Claude web content fetching
 
 **Google Tools:**
-- `"google_search"` — Search grounding with citations
+- `"google_search"` — Gemini 2.0+ search with automatic grounding ✅
 - `"google_search_retrieval"` — Legacy search (Gemini 1.5)
 - `"google_code_execution"` — Python code execution ✅
-- `"google_url_context"` — URL content analysis
+- `"google_url_context"` — Direct URL content processing (websites, PDFs, images) ✅
+- `"google_image_generation"` — Gemini 2.5+ native image generation ✅
 
 ### Simple Usage
 ```python
@@ -136,7 +137,7 @@ response = agent.generate(
 # Generic tool names (default to Google)
 response = agent.generate(
     "Search for AI research",
-    tools=["web_search"]  # Defaults to Google search
+    tools=["web_search"]  # Defaults to Google Gemini 2.0+ search
 )
 ```
 

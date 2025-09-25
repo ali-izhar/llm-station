@@ -12,6 +12,7 @@ from .web_fetch.anthropic import AnthropicWebFetch
 from .code_execution.openai import OpenAICodeInterpreter
 from .code_execution.google import GoogleCodeExecution
 from .image_generation.openai import OpenAIImageGeneration
+from .image_generation.google import GoogleImageGeneration
 from .url_context.google import GoogleUrlContext
 
 # Register built-in local tools on import
@@ -44,12 +45,15 @@ register_provider_tool(
 )
 register_provider_tool("google_code_execution", lambda: GoogleCodeExecution().spec())
 register_provider_tool("google_url_context", lambda: GoogleUrlContext().spec())
+register_provider_tool(
+    "google_image_generation", lambda: GoogleImageGeneration().spec()
+)
 
 # Register alternative tool names with best defaults for user experience
 register_provider_tool(
     "web_search",
-    lambda: GoogleSearchRetrieval(mode="MODE_DYNAMIC", dynamic_threshold=0.7).spec(),
-)  # Default to Google (most reliable)
+    lambda: GoogleWebSearch().spec(),
+)  # Default to Google Gemini 2.0+ search (most advanced)
 register_provider_tool(
     "code_execution", lambda: GoogleCodeExecution().spec()
 )  # Default to Google (most reliable)
@@ -75,4 +79,5 @@ __all__ = [
     "GoogleSearchRetrieval",
     "GoogleCodeExecution",
     "GoogleUrlContext",
+    "GoogleImageGeneration",
 ]

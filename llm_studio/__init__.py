@@ -37,6 +37,11 @@ from .batch import (
     BatchJob,
     BatchStatus,
     CompletionWindow,
+    GoogleBatchProcessor,
+    GoogleBatchTask,
+    GoogleBatchResult,
+    GoogleBatchJob,
+    GoogleBatchStatus,
 )
 
 __all__ = [
@@ -63,4 +68,9 @@ __all__ = [
     "BatchJob",
     "BatchStatus",
     "CompletionWindow",
+    "GoogleBatchProcessor",
+    "GoogleBatchTask",
+    "GoogleBatchResult",
+    "GoogleBatchJob",
+    "GoogleBatchStatus",
 ]

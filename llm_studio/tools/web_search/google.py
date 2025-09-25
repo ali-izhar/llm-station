@@ -1,16 +1,39 @@
+#!/usr/bin/env python3
 from __future__ import annotations
-
 from typing import Any, Dict, Optional
 
 from ...schemas.tooling import ToolSpec
 
 
 class GoogleWebSearch:
-    """Factory for Google Gemini grounding with Google Search tool.
+    """Factory for Google Gemini 2.0+ search tool with automatic grounding.
 
-    Produces a provider-native ToolSpec that instructs the Google adapter to
-    include the `google_search` tool in the request. The model executes search
-    server-side and returns grounded responses with citations.
+    The new search tool in Gemini 2.0 models automatically retrieves accurate and
+    grounded artifacts from the web. Unlike the legacy search grounding in Gemini 1.5,
+    this tool doesn't require dynamic retrieval threshold configuration.
+
+    Key features:
+    - Automatic search result retrieval and grounding
+    - Citations and sources included in response metadata
+    - Search entry point with rendered content for Google Search Suggestions
+    - Enhanced grounding chunks with web information
+    - Works with Gemini 2.0+ models (gemini-2.5-flash, gemini-2.5-pro, etc.)
+
+    Usage:
+        agent = Agent(provider="google", model="gemini-2.5-flash", api_key=api_key)
+        response = agent.generate(
+            "Research the latest AI developments",
+            tools=["google_search"]
+        )
+
+        # Access grounding metadata
+        if response.grounding_metadata:
+            sources = response.grounding_metadata.get("sources", [])
+            citations = response.grounding_metadata.get("citations", [])
+            search_entry_point = response.grounding_metadata.get("search_entry_point")
+
+    Note: You must enable Google Search Suggestions to display search queries
+    that are included in the grounded response's metadata.
     """
 
     def __init__(self) -> None:
@@ -19,7 +42,7 @@ class GoogleWebSearch:
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="google_search",
-            description="Google Gemini built-in web grounding search tool",
+            description="Google Gemini 2.0+ search tool with automatic grounding and citations",
             input_schema={},
             requires_network=True,
             provider="google",

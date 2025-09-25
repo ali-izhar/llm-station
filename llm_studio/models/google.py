@@ -1,5 +1,5 @@
+#!/usr/bin/env python3
 from __future__ import annotations
-
 from typing import Any, Dict, List, Optional
 
 from .base import ModelConfig, ProviderAdapter
@@ -8,9 +8,10 @@ from ..schemas.tooling import ToolSpec
 
 
 class GoogleProvider(ProviderAdapter):
-    """Adapter for Google Gemini models via Generative Language API.
+    """Adapter for Google Gemini models via Google Gen AI SDK.
 
-    This is a request/response shaping scaffold with no network calls.
+    Supports Gemini 2.0+ models with the new search tool and grounding capabilities.
+    Uses the latest google-genai SDK for unified access to Google AI and Vertex AI.
     """
 
     name = "google"
@@ -18,31 +19,38 @@ class GoogleProvider(ProviderAdapter):
     def supports_tools(self) -> bool:
         return True
 
-    def prepare_tools(self, tools: List[ToolSpec]) -> List[Dict[str, Any]]:
-        # Gemini tools accept a list where each entry is a tool kind
-        tool_list: List[Dict[str, Any]] = []
+    def prepare_tools(self, tools: List[ToolSpec]) -> List[Any]:
+        """Convert normalized ToolSpec to Google SDK Tool objects."""
+        tool_list: List[Any] = []
 
-        # Collect function declarations first, then append as a single tool entry if any
+        # Function declarations for local tools
         fn_decls: List[Dict[str, Any]] = []
+
         for t in tools:
-            if t.provider == "google" and t.provider_type in {
-                "google_search",
-                "google_search_retrieval",
-            }:
-                if t.provider_type == "google_search":
-                    tool_list.append({"google_search": {}})
-                elif t.provider_type == "google_search_retrieval":
-                    entry: Dict[str, Any] = {"google_search_retrieval": {}}
-                    cfg = t.provider_config or {}
-                    if cfg:
-                        entry["google_search_retrieval"] = cfg
-                    tool_list.append(entry)
+            if t.provider == "google" and t.provider_type == "google_search":
+                # Gemini 2.0+ search tool - no configuration needed
+                tool_list.append({"google_search": {}})
+            elif (
+                t.provider == "google" and t.provider_type == "google_search_retrieval"
+            ):
+                # Legacy search retrieval for Gemini 1.5
+                entry: Dict[str, Any] = {"google_search_retrieval": {}}
+                cfg = t.provider_config or {}
+                if cfg:
+                    entry["google_search_retrieval"] = cfg
+                tool_list.append(entry)
             elif t.provider == "google" and t.provider_type == "code_execution":
-                # Enable code execution tool
+                # Code execution tool
                 tool_list.append({"code_execution": {}})
             elif t.provider == "google" and t.provider_type == "url_context":
+                # URL context tool
                 tool_list.append({"url_context": {}})
+            elif t.provider == "google" and t.provider_type == "image_generation":
+                # Image generation is built into Gemini 2.5 models - no explicit tool needed
+                # Just ensure response_modalities include 'Image'
+                pass  # Handled in generation config
             else:
+                # Local function tools
                 fn_decls.append(
                     {
                         "name": t.name,
@@ -71,17 +79,20 @@ class GoogleProvider(ProviderAdapter):
 
     @staticmethod
     def _parse_response(payload: Dict[str, Any]) -> ModelResponse:
+        """Parse Google Gemini API response with enhanced grounding metadata support."""
         candidates = payload.get("candidates", [])
         if not candidates:
             return ModelResponse(content="", tool_calls=[], raw=payload)
+
         cand = candidates[0]
         content = ""
         tool_calls: List[ToolCall] = []
 
-        # Parse different content parts (text, code execution, function calls)
+        # Parse different content parts (text, code execution, function calls, images)
         parts = (cand.get("content") or {}).get("parts") or []
         text_parts = []
         code_parts = []
+        image_parts = []
 
         for p in parts:
             # Regular text content
@@ -102,44 +113,245 @@ class GoogleProvider(ProviderAdapter):
             # Code execution parts (executable_code and code_execution_result)
             elif hasattr(p, "executable_code") and p.executable_code:
                 code = getattr(p.executable_code, "code", "")
+                language = getattr(p.executable_code, "language", "python")
                 if code:
-                    code_parts.append(f"```python\n{code}\n```")
+                    code_parts.append(f"```{language}\n{code}\n```")
             elif "executable_code" in p:
-                code = p.get("executable_code", {}).get("code", "")
+                exec_code = p.get("executable_code", {})
+                code = exec_code.get("code", "")
+                language = exec_code.get("language", "python")
                 if code:
-                    code_parts.append(f"```python\n{code}\n```")
+                    code_parts.append(f"```{language}\n{code}\n```")
 
             elif hasattr(p, "code_execution_result") and p.code_execution_result:
                 output = getattr(p.code_execution_result, "output", "")
+                outcome = getattr(p.code_execution_result, "outcome", "")
                 if output:
-                    code_parts.append(f"Output:\n{output}")
+                    code_parts.append(f"**Execution Output:**\n```\n{output}\n```")
+                if outcome and outcome != "OK":
+                    code_parts.append(f"**Execution Status:** {outcome}")
             elif "code_execution_result" in p:
-                output = p.get("code_execution_result", {}).get("output", "")
+                exec_result = p.get("code_execution_result", {})
+                output = exec_result.get("output", "")
+                outcome = exec_result.get("outcome", "")
                 if output:
-                    code_parts.append(f"Output:\n{output}")
+                    code_parts.append(f"**Execution Output:**\n```\n{output}\n```")
+                if outcome and outcome != "OK":
+                    code_parts.append(f"**Execution Status:** {outcome}")
 
-        # Combine text and code parts
-        all_parts = text_parts + code_parts
+            # Handle inline_data (images, graphs generated by code)
+            elif hasattr(p, "inline_data") and p.inline_data:
+                mime_type = getattr(p.inline_data, "mime_type", "")
+                data = getattr(p.inline_data, "data", "")
+                if data:
+                    if "image" in mime_type:
+                        code_parts.append(f"**Generated Image** ({mime_type})")
+                        # Note: Base64 image data available in response.raw for processing
+                    else:
+                        code_parts.append(f"**Generated Media** ({mime_type})")
+            elif "inline_data" in p:
+                inline_data = p.get("inline_data", {})
+                mime_type = inline_data.get("mime_type", "")
+                data = inline_data.get("data", "")
+                if data:
+                    if "image" in mime_type:
+                        code_parts.append(f"**Generated Image** ({mime_type})")
+                    else:
+                        code_parts.append(f"**Generated Media** ({mime_type})")
+
+            # Handle image parts (native image generation)
+            elif "image" in p or (hasattr(p, "as_image") and callable(p.as_image)):
+                # Gemini 2.5 native image generation
+                image_parts.append("**Generated Image**")
+                # Note: Actual image data available via response.parts in SDK
+            elif "blob" in p and p.get("blob", {}).get("mime_type", "").startswith(
+                "image/"
+            ):
+                # Alternative image format
+                mime_type = p["blob"]["mime_type"]
+                image_parts.append(f"**Generated Image** ({mime_type})")
+
+        # Combine all content parts
+        all_parts = text_parts + code_parts + image_parts
         content = "\n".join(part for part in all_parts if part.strip())
 
-        # Extract grounding metadata if present (for Google Search grounding)
-        grounding_metadata = cand.get("groundingMetadata")
+        # Enhanced metadata extraction for Gemini 2.0+
+        grounding_metadata = {}
 
-        # Extract URL context metadata if present (for URL context tool)
-        url_context_metadata = cand.get("url_context_metadata")
+        # Extract code execution metadata from response parts
+        code_execution_data = []
+        inline_media_data = []
 
-        # Combine metadata for convenience (both are Google-specific)
-        combined_metadata = {}
-        if grounding_metadata:
-            combined_metadata["grounding"] = grounding_metadata
-        if url_context_metadata:
-            combined_metadata["url_context"] = url_context_metadata
+        for p in parts:
+            # Collect code execution information
+            if "executable_code" in p or hasattr(p, "executable_code"):
+                exec_code = (
+                    p.get("executable_code")
+                    if "executable_code" in p
+                    else p.executable_code
+                )
+                if exec_code:
+                    code_info = {
+                        "code": (
+                            exec_code.get("code")
+                            if isinstance(exec_code, dict)
+                            else getattr(exec_code, "code", "")
+                        ),
+                        "language": (
+                            exec_code.get("language", "python")
+                            if isinstance(exec_code, dict)
+                            else getattr(exec_code, "language", "python")
+                        ),
+                    }
+                    code_execution_data.append(code_info)
+
+            # Collect execution results
+            if "code_execution_result" in p or hasattr(p, "code_execution_result"):
+                exec_result = (
+                    p.get("code_execution_result")
+                    if "code_execution_result" in p
+                    else p.code_execution_result
+                )
+                if exec_result:
+                    result_info = {
+                        "output": (
+                            exec_result.get("output")
+                            if isinstance(exec_result, dict)
+                            else getattr(exec_result, "output", "")
+                        ),
+                        "outcome": (
+                            exec_result.get("outcome", "OK")
+                            if isinstance(exec_result, dict)
+                            else getattr(exec_result, "outcome", "OK")
+                        ),
+                    }
+                    # Attach to the last code execution entry
+                    if code_execution_data:
+                        code_execution_data[-1]["result"] = result_info
+
+            # Collect inline media (images, graphs)
+            if "inline_data" in p or hasattr(p, "inline_data"):
+                inline_data = (
+                    p.get("inline_data") if "inline_data" in p else p.inline_data
+                )
+                if inline_data:
+                    media_info = {
+                        "mime_type": (
+                            inline_data.get("mime_type")
+                            if isinstance(inline_data, dict)
+                            else getattr(inline_data, "mime_type", "")
+                        ),
+                        "data": (
+                            inline_data.get("data")
+                            if isinstance(inline_data, dict)
+                            else getattr(inline_data, "data", "")
+                        ),
+                        "size": (
+                            len(inline_data.get("data", ""))
+                            if isinstance(inline_data, dict)
+                            else len(getattr(inline_data, "data", ""))
+                        ),
+                    }
+                    inline_media_data.append(media_info)
+
+        # Extract image generation metadata
+        image_generation_data = []
+        for p in parts:
+            if "image" in p or (hasattr(p, "as_image") and callable(p.as_image)):
+                # Image generation detected
+                image_info = {
+                    "type": "native_generation",
+                    "available": True,
+                    "format": "PIL_Image",  # Available via response.parts[].as_image()
+                }
+                image_generation_data.append(image_info)
+            elif "blob" in p and p.get("blob", {}).get("mime_type", "").startswith(
+                "image/"
+            ):
+                blob = p["blob"]
+                image_info = {
+                    "type": "blob_image",
+                    "mime_type": blob.get("mime_type", ""),
+                    "size": len(blob.get("data", "")),
+                    "available": True,
+                }
+                image_generation_data.append(image_info)
+
+        # Add metadata if present
+        if code_execution_data:
+            grounding_metadata["code_execution"] = code_execution_data
+        if inline_media_data:
+            grounding_metadata["inline_media"] = inline_media_data
+        if image_generation_data:
+            grounding_metadata["image_generation"] = image_generation_data
+
+        # Extract search grounding metadata (search results, citations)
+        if cand.get("groundingMetadata"):
+            grounding_metadata["grounding"] = cand["groundingMetadata"]
+
+            # Extract search queries if present
+            search_queries = []
+            gm = cand["groundingMetadata"]
+            if "search_entry_point" in gm:
+                search_entry_point = gm["search_entry_point"]
+                if "rendered_content" in search_entry_point:
+                    grounding_metadata["search_entry_point"] = search_entry_point[
+                        "rendered_content"
+                    ]
+
+            # Extract grounding chunks (search results with citations)
+            if "grounding_chunks" in gm:
+                chunks = gm["grounding_chunks"]
+                grounding_metadata["grounding_chunks"] = chunks
+
+                # Extract sources/citations for compatibility
+                sources = []
+                citations = []
+                for chunk in chunks:
+                    if "web" in chunk:
+                        web_info = chunk["web"]
+                        if "uri" in web_info:
+                            sources.append(web_info["uri"])
+                        if "title" in web_info:
+                            citations.append(
+                                {
+                                    "url": web_info.get("uri", ""),
+                                    "title": web_info.get("title", ""),
+                                    "snippet": web_info.get("snippet", ""),
+                                }
+                            )
+
+                if sources:
+                    grounding_metadata["sources"] = sources
+                if citations:
+                    grounding_metadata["citations"] = citations
+
+        # Extract URL context metadata if present
+        if cand.get("url_context_metadata"):
+            url_context_data = cand["url_context_metadata"]
+            grounding_metadata["url_context"] = url_context_data
+
+            # Extract URL processing status for easier access
+            if isinstance(url_context_data, list):
+                processed_urls = []
+                for url_info in url_context_data:
+                    if isinstance(url_info, dict):
+                        processed_urls.append(
+                            {
+                                "url": url_info.get("url", ""),
+                                "status": url_info.get("status", ""),
+                                "content_type": url_info.get("content_type", ""),
+                                "size": url_info.get("size", 0),
+                            }
+                        )
+                if processed_urls:
+                    grounding_metadata["processed_urls"] = processed_urls
 
         return ModelResponse(
             content=content,
             tool_calls=tool_calls,
             raw=payload,
-            grounding_metadata=combined_metadata if combined_metadata else None,
+            grounding_metadata=grounding_metadata if grounding_metadata else None,
         )
 
     def generate(
@@ -169,79 +381,91 @@ class GoogleProvider(ProviderAdapter):
 
         # Real call to Google Gemini SDK
         try:
-            import google.genai as genai
-            from google.genai import types
+            from google import genai
+            from google.genai.types import GenerateContentConfig, Tool
 
             client = genai.Client(api_key=self.api_key)
 
-            # Build config object
-            config_obj = None
+            # Build config object with system instruction and tools
+            config_obj = GenerateContentConfig()
+
+            # Add system instruction if present
+            if shaped.get("system_instruction"):
+                config_obj.system_instruction = shaped["system_instruction"]
+
+            # Add generation config parameters
+            if config.temperature is not None:
+                config_obj.temperature = config.temperature
+            if config.max_tokens is not None:
+                config_obj.max_output_tokens = config.max_tokens
+
+            # Check for image generation tools to set response modalities
+            has_image_generation = any(
+                t.provider == "google" and t.provider_type == "image_generation"
+                for t in (tools or [])
+            )
+
+            # Set response modalities for image generation
+            if has_image_generation:
+                config_obj.response_modalities = ["Text", "Image"]
+
+            # Convert prepared tools to Google SDK format
             if tools:
-                config_obj = types.GenerateContentConfig()
-                # Convert prepared tools to Google SDK format
                 google_tools = []
                 for tool_dict in request["tools"]:
                     if "google_search" in tool_dict:
-                        google_tools.append(
-                            types.Tool(google_search=types.GoogleSearch())
-                        )
+                        # Gemini 2.0+ search tool - simplified, no configuration needed
+                        google_tools.append(Tool(google_search={}))
                     elif "google_search_retrieval" in tool_dict:
+                        # Legacy search retrieval for Gemini 1.5
                         config_data = tool_dict["google_search_retrieval"]
+                        retrieval_config = {}
                         if config_data:
                             drc = config_data.get("dynamic_retrieval_config", {})
-                            retrieval_config = types.GoogleSearchRetrieval()
                             if drc:
-                                retrieval_config.dynamic_retrieval_config = (
-                                    types.DynamicRetrievalConfig(
-                                        mode=getattr(
-                                            types.DynamicRetrievalConfigMode,
-                                            drc.get("mode", "MODE_DYNAMIC"),
-                                        ),
-                                        dynamic_threshold=drc.get("dynamic_threshold"),
-                                    )
-                                )
-                            google_tools.append(
-                                types.Tool(google_search_retrieval=retrieval_config)
-                            )
-                        else:
-                            google_tools.append(
-                                types.Tool(
-                                    google_search_retrieval=types.GoogleSearchRetrieval()
-                                )
-                            )
+                                retrieval_config["dynamic_retrieval_config"] = {
+                                    "mode": drc.get("mode", "MODE_DYNAMIC"),
+                                    "dynamic_threshold": drc.get(
+                                        "dynamic_threshold", 0.7
+                                    ),
+                                }
+                        google_tools.append(
+                            Tool(google_search_retrieval=retrieval_config)
+                        )
                     elif "code_execution" in tool_dict:
-                        google_tools.append(types.Tool(code_execution={}))
+                        google_tools.append(Tool(code_execution={}))
                     elif "url_context" in tool_dict:
-                        google_tools.append(types.Tool(url_context={}))
+                        google_tools.append(Tool(url_context={}))
                     elif "function_declarations" in tool_dict:
+                        # Local function tools
                         func_decls = []
                         for func in tool_dict["function_declarations"]:
                             func_decls.append(
-                                types.FunctionDeclaration(
-                                    name=func["name"],
-                                    description=func["description"],
-                                    parameters=types.Schema.from_dict(
-                                        func["parameters"]
-                                    ),
-                                )
+                                {
+                                    "name": func["name"],
+                                    "description": func["description"],
+                                    "parameters": func["parameters"],
+                                }
                             )
-                        google_tools.append(
-                            types.Tool(function_declarations=func_decls)
-                        )
-                config_obj.tools = google_tools
+                        google_tools.append(Tool(function_declarations=func_decls))
 
-            # Make the API call
-            kwargs = {"model": request["model"], "contents": request["contents"]}
-            # Note: system_instruction not supported in current SDK version
-            if config_obj:
-                kwargs["config"] = config_obj
+                if google_tools:  # Only set tools if we have actual tools to register
+                    config_obj.tools = google_tools
 
-            response = client.models.generate_content(**kwargs)
-            return self._parse_response(response.model_dump())
+            # Make the API call with the new SDK
+            response = client.models.generate_content(
+                model=request["model"], contents=request["contents"], config=config_obj
+            )
+
+            # Convert response to dict format for parsing
+            response_dict = (
+                response.model_dump() if hasattr(response, "model_dump") else response
+            )
+            return self._parse_response(response_dict)
 
         except ImportError:
             raise RuntimeError(
-                "Google GenAI SDK not installed. Install with: pip install google-genai"
+                "Google GenAI SDK not installed. Install with: pip install -U google-genai"
             )
         except Exception as e:
             raise RuntimeError(f"Google Gemini API call failed: {str(e)}")
