@@ -286,12 +286,13 @@ class GoogleProvider(ProviderAdapter):
             grounding_metadata["image_generation"] = image_generation_data
 
         # Extract search grounding metadata (search results, citations)
-        if cand.get("groundingMetadata"):
-            grounding_metadata["grounding"] = cand["groundingMetadata"]
+        raw_grounding = cand.get("grounding_metadata") or cand.get("groundingMetadata")
+        if raw_grounding:
+            grounding_metadata["grounding"] = raw_grounding
 
             # Extract search queries if present
             search_queries = []
-            gm = cand["groundingMetadata"]
+            gm = raw_grounding
             if "search_entry_point" in gm:
                 search_entry_point = gm["search_entry_point"]
                 if "rendered_content" in search_entry_point:

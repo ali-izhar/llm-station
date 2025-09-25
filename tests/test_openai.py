@@ -12,13 +12,16 @@ Tests cover:
 - Web Search tool with real searches
 - Code Interpreter tool with real Python execution
 - Image Generation tool with real image creation
+
+Enhanced with detailed response analysis and logging for model validation.
 """
 
 import os
 import base64
+import json
 import pytest
 from dotenv import load_dotenv
-from llm_studio import Agent
+from llm_studio import Agent, setup_logging, LogLevel
 from llm_studio.models.openai import OpenAIProvider
 from llm_studio.models.base import ModelConfig
 from llm_studio.schemas.messages import UserMessage, SystemMessage
@@ -28,6 +31,118 @@ from llm_studio.tools.image_generation.openai import OpenAIImageGeneration
 
 # Load environment variables
 load_dotenv()
+
+# Enable detailed logging for analysis
+setup_logging(level=LogLevel.DEBUG)
+
+
+def log_response_analysis(test_name: str, response, api_type: str = "unknown"):
+    """Detailed logging and analysis of API responses.
+
+    Note: For Agent.generate() calls, response is AssistantMessage with grounding_metadata.
+    For direct provider calls, response is ModelResponse with raw data.
+    """
+    print(f"\n{'='*80}")
+    print(f"RESPONSE ANALYSIS: {test_name}")
+    print(f"API Type: {api_type}")
+    print(f"Response Type: {type(response).__name__}")
+    print(f"{'='*80}")
+
+    # Basic response info
+    print(f"Content Length: {len(response.content)}")
+    print(f"Content Preview: {response.content[:200]}...")
+    print(
+        f"Tool Calls Count: {len(response.tool_calls) if hasattr(response, 'tool_calls') else 'N/A'}"
+    )
+
+    # Tool calls analysis
+    if hasattr(response, "tool_calls") and response.tool_calls:
+        print(f"\nTool Calls:")
+        for i, tc in enumerate(response.tool_calls):
+            print(f"  {i+1}. ID: {tc.id}")
+            print(f"     Name: {tc.name}")
+            print(f"     Arguments: {tc.arguments}")
+
+    # Grounding metadata analysis (available in both AssistantMessage and ModelResponse)
+    if hasattr(response, "grounding_metadata") and response.grounding_metadata:
+        print(f"\nGrounding Metadata Keys: {list(response.grounding_metadata.keys())}")
+
+        for key, value in response.grounding_metadata.items():
+            print(f"\n{key.upper()}:")
+            if isinstance(value, list):
+                print(f"  Type: List with {len(value)} items")
+                if value and len(value) <= 3:  # Show first few items
+                    for i, item in enumerate(value):
+                        print(f"  [{i}]: {str(item)[:100]}...")
+            elif isinstance(value, dict):
+                print(f"  Type: Dict with {len(value)} keys: {list(value.keys())}")
+                for k, v in value.items():
+                    if isinstance(v, str) and len(v) > 50:
+                        print(f"    {k}: {str(v)[:50]}...")
+                    else:
+                        print(f"    {k}: {v}")
+            else:
+                print(f"  Type: {type(value).__name__}")
+                print(f"  Value: {str(value)[:100]}...")
+
+    # Raw response structure analysis (only available in ModelResponse)
+    if hasattr(response, "raw") and response.raw:
+        print(f"\nRaw Response Structure:")
+        print(f"  Type: {type(response.raw)}")
+        if isinstance(response.raw, dict):
+            print(f"  Top-level keys: {list(response.raw.keys())}")
+
+            # Analyze specific OpenAI response patterns
+            if "output" in response.raw:
+                output = response.raw["output"]
+                print(f"  Output type: {type(output)}")
+                if isinstance(output, list):
+                    print(f"  Output array length: {len(output)}")
+                    for i, item in enumerate(output[:3]):  # First 3 items
+                        if isinstance(item, dict):
+                            print(f"    [{i}] type: {item.get('type', 'unknown')}")
+                            print(f"    [{i}] keys: {list(item.keys())}")
+
+            if "choices" in response.raw:
+                choices = response.raw["choices"]
+                print(f"  Choices length: {len(choices)}")
+                if choices:
+                    choice = choices[0]
+                    print(f"  First choice keys: {list(choice.keys())}")
+                    if "message" in choice:
+                        msg = choice["message"]
+                        print(f"  Message keys: {list(msg.keys())}")
+        elif isinstance(response.raw, list):
+            print(f"  List length: {len(response.raw)}")
+            for i, item in enumerate(response.raw[:3]):
+                if isinstance(item, dict):
+                    print(f"    [{i}] type: {item.get('type', 'unknown')}")
+                    print(f"    [{i}] keys: {list(item.keys())}")
+
+    print(f"{'='*80}\n")
+
+
+def save_response_to_file(test_name: str, response, api_type: str):
+    """Save full response to file for detailed analysis."""
+    os.makedirs("test_outputs", exist_ok=True)
+
+    analysis_data = {
+        "test_name": test_name,
+        "api_type": api_type,
+        "content": response.content,
+        "tool_calls": [
+            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+            for tc in response.tool_calls
+        ],
+        "grounding_metadata": response.grounding_metadata,
+        "raw_response": response.raw,
+    }
+
+    filename = f"test_outputs/{test_name.replace(' ', '_').lower()}_{api_type}.json"
+    with open(filename, "w") as f:
+        json.dump(analysis_data, f, indent=2, default=str)
+
+    print(f"💾 Saved detailed analysis to: {filename}")
 
 
 @pytest.fixture
@@ -73,6 +188,10 @@ class TestRealChatCompletions:
         assert "4" in result.content
         print(f"✓ Chat Completions Response: {result.content}")
 
+        # Detailed response analysis
+        log_response_analysis("Basic Chat Completion", result, "chat_completions")
+        save_response_to_file("basic_chat_completion", result, "chat_completions")
+
     @pytest.mark.integration
     def test_chat_with_function_tools(self, openai_agent):
         """Test Chat Completions with local function tools."""
@@ -88,6 +207,10 @@ class TestRealChatCompletions:
         if result.tool_calls:
             print(f"✓ Tool calls made: {[tc.name for tc in result.tool_calls]}")
 
+        # Detailed response analysis
+        log_response_analysis("Chat with Function Tools", result, "chat_completions")
+        save_response_to_file("chat_with_function_tools", result, "chat_completions")
+
     @pytest.mark.integration
     def test_search_model_native_search(self, openai_api_key):
         """Test search models with built-in web search capabilities."""
@@ -100,6 +223,12 @@ class TestRealChatCompletions:
 
         assert len(result.content) > 0
         print(f"✓ Built-in Search Response: {result.content[:200]}...")
+
+        # Detailed response analysis
+        log_response_analysis(
+            "Search Model Native Search", result, "chat_completions_with_search"
+        )
+        save_response_to_file("search_model_native", result, "chat_completions")
 
 
 class TestRealResponsesAPI:
@@ -118,6 +247,10 @@ class TestRealResponsesAPI:
         assert len(result.content) > 0
         assert "Paris" in result.content
         print(f"✓ Responses API Response: {result.content}")
+
+        # Detailed response analysis
+        log_response_analysis("Basic Responses API", result, "responses_api")
+        save_response_to_file("basic_responses_call", result, "responses_api")
 
     @pytest.mark.integration
     def test_responses_with_reasoning(self, responses_agent):
@@ -138,6 +271,10 @@ class TestRealResponsesAPI:
         assert len(result.content) > 0
         assert "quantum" in result.content.lower()
         print(f"✓ Responses API Response: {result.content[:200]}...")
+
+        # Detailed response analysis
+        log_response_analysis("Responses with Reasoning", result, "responses_api")
+        save_response_to_file("responses_with_reasoning", result, "responses_api")
 
 
 class TestRealWebSearch:
@@ -160,10 +297,24 @@ class TestRealWebSearch:
             if "citations" in result.grounding_metadata:
                 citations = result.grounding_metadata["citations"]
                 print(f"✓ Found {len(citations)} citations")
+                # Analyze citation structure
+                if citations:
+                    sample_citation = citations[0]
+                    print(f"  Sample citation keys: {list(sample_citation.keys())}")
 
             if "sources" in result.grounding_metadata:
                 sources = result.grounding_metadata["sources"]
                 print(f"✓ Found {len(sources)} sources")
+
+            if "web_search" in result.grounding_metadata:
+                ws_info = result.grounding_metadata["web_search"]
+                print(
+                    f"✓ Web search info keys: {list(ws_info.keys()) if isinstance(ws_info, dict) else type(ws_info)}"
+                )
+
+        # Detailed response analysis
+        log_response_analysis("OpenAI Web Search", result, "responses_api_web_search")
+        save_response_to_file("openai_web_search", result, "responses_api")
 
     @pytest.mark.integration
     def test_domain_filtered_search(self, responses_agent):
@@ -228,6 +379,12 @@ class TestRealCodeInterpreter:
                 code_info = result.grounding_metadata["code_interpreter"]
                 if isinstance(code_info, dict) and "code" in code_info:
                     print(f"✓ Executed Code: {code_info['code']}")
+
+        # Detailed response analysis
+        log_response_analysis(
+            "OpenAI Code Interpreter Math", result, "responses_api_code_interpreter"
+        )
+        save_response_to_file("openai_code_interpreter_math", result, "responses_api")
 
     @pytest.mark.integration
     def test_data_analysis(self, responses_agent):
@@ -303,6 +460,12 @@ class TestRealImageGeneration:
 
                 if "revised_prompt" in call:
                     print(f"✓ Revised prompt: {call['revised_prompt']}")
+
+        # Detailed response analysis
+        log_response_analysis(
+            "OpenAI Image Generation", result, "responses_api_image_generation"
+        )
+        save_response_to_file("openai_image_generation", result, "responses_api")
 
     @pytest.mark.integration
     def test_high_quality_image_generation(self, responses_agent):
@@ -522,6 +685,50 @@ class TestRealErrorScenarios:
         if result.grounding_metadata:
             metadata_types = list(result.grounding_metadata.keys())
             print(f"✓ Metadata types present: {metadata_types}")
+
+
+class TestOpenAIResponseStructures:
+    """Test different OpenAI response structures for analysis."""
+
+    @pytest.mark.integration
+    def test_responses_api_structure_analysis(self, openai_api_key):
+        """Deep analysis of Responses API structure with different tools."""
+        # Test different tools with Responses API to understand structures
+        agent = Agent(
+            provider="openai", model="gpt-4o", api_key=openai_api_key, api="responses"
+        )
+
+        # Test 1: Web search structure
+        result = agent.generate(
+            "Quick search: latest Python version", tools=["openai_web_search"]
+        )
+        log_response_analysis(
+            "Responses API Web Search Structure", result, "responses_api_detailed"
+        )
+        save_response_to_file("responses_web_search_structure", result, "responses_api")
+
+        # Test 2: Code interpreter structure
+        result = agent.generate(
+            "Calculate 5! using Python", tools=["openai_code_interpreter"]
+        )
+        log_response_analysis(
+            "Responses API Code Structure", result, "responses_api_detailed"
+        )
+        save_response_to_file("responses_code_structure", result, "responses_api")
+
+    @pytest.mark.integration
+    def test_chat_completions_structure_analysis(self, openai_api_key):
+        """Deep analysis of Chat Completions API structure."""
+        agent = Agent(provider="openai", model="gpt-4o-mini", api_key=openai_api_key)
+
+        # Test with function calling
+        result = agent.generate("Format as JSON: name=Test", tools=["json_format"])
+        log_response_analysis(
+            "Chat Completions Function Call Structure",
+            result,
+            "chat_completions_detailed",
+        )
+        save_response_to_file("chat_function_structure", result, "chat_completions")
 
 
 class TestRealUsabilityScenarios:
