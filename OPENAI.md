@@ -265,6 +265,30 @@ edit_tool = OpenAIImageGenerationAdvanced(
 response2 = agent.generate("Make it more realistic", tools=[edit_tool.spec()])
 ```
 
+### Image Generation Troubleshooting
+```python
+# If image generation doesn't work with gpt-4o-mini, try compatible models:
+models_to_try = ["gpt-5", "gpt-4.1", "gpt-4o"]
+
+for model in models_to_try:
+    try:
+        agent = Agent(provider="openai", model=model, api_key=key)
+        response = agent.generate("Draw a red circle", tools=["openai_image_generation"])
+        
+        if response.grounding_metadata and "image_generation" in response.grounding_metadata:
+            print(f"✅ {model} supports image generation")
+            break
+        else:
+            print(f"⚠ {model}: Request processed but no images generated")
+    except Exception as e:
+        print(f"❌ {model}: {e}")
+
+# Requirements for image generation:
+# - Compatible model (gpt-5, gpt-4.1, gpt-4o with image support)
+# - API Organization Verification (may be required)
+# - Sufficient API credits for image tokens
+```
+
 ## Batch API
 
 ```python

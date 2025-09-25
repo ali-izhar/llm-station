@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""OpenAI Image Generation Tools (Responses API)"""
+
 from __future__ import annotations
 from typing import Any, Dict, Optional
 
@@ -8,89 +10,48 @@ from ...schemas.tooling import ToolSpec
 class OpenAIImageGeneration:
     """Factory for OpenAI Image Generation tool (Responses API).
 
-    OpenAI's Image Generation tool allows models to generate or edit images using
-    text prompts and optional image inputs. It leverages the GPT Image model and
-    automatically optimizes text inputs for improved performance.
+    Uses the Responses API image_generation tool which integrates image generation
+    into conversations and leverages the model's world knowledge.
 
-    Features:
-    - Generate images from text prompts
-    - Edit existing images with new prompts
-    - Multi-turn iterative editing
-    - Streaming partial images (1-3 progressive renders)
-    - Automatic prompt revision for better results
-    - Base64-encoded image outputs
-    - File ID and base64 image inputs
-
-    Output Options:
-    - Size: Image dimensions (1024x1024, 1024x1536, auto)
-    - Quality: Rendering quality (low, medium, high, auto)
-    - Format: File output format (PNG, JPEG, WebP)
-    - Compression: Compression level (0-100%) for JPEG/WebP
-    - Background: Transparent or opaque (auto)
-
-    Multi-turn Editing:
-    - Reference previous response IDs for context
-    - Reference specific image generation call IDs
-    - Iterative refinement across conversation turns
-
-    Streaming:
-    - Progressive image generation (1-3 partial images)
-    - Faster visual feedback and improved perceived latency
-    - Real-time generation progress
+    The Responses API approach:
+    - Uses mainline models (gpt-4.1-mini, gpt-4.1, gpt-5) that call the image_generation tool
+    - Supports conversational context and multi-turn editing
+    - Leverages world knowledge for better image generation
+    - Should work without special organization verification
 
     Args:
-        size: Image dimensions. Options: "1024x1024", "1024x1536", "1536x1024",
-              "1792x1024", "1024x1792", "auto" (model selects best)
-        quality: Rendering quality. Options: "low", "medium", "high", "auto"
-        format: Output format. Options: "png", "jpeg", "webp"
-        compression: Compression level 0-100 for JPEG/WebP formats
-        background: Background type. Options: "transparent", "opaque", "auto"
-        partial_images: Number of streaming partial images (1-3)
-
-    Supported Models:
-        Compatible with OpenAI models that support image generation.
-        Refer to OpenAI documentation for current model availability.
-
-        Image generation is performed by OpenAI's specialized image model.
+        size: Image dimensions ("1024x1024", "1024x1536", "1536x1024", "auto")
+        quality: Rendering quality ("low", "medium", "high", "auto")
+        format: Output format ("png", "jpeg", "webp")
+        compression: Compression level 0-100 for JPEG/WebP
+        background: Background type ("transparent", "opaque", "auto")
+        partial_images: Number of streaming partial images (0-3)
+        input_fidelity: Input preservation ("low", "high")
 
     Examples:
         Basic generation:
             tool = OpenAIImageGeneration()
 
-        High quality with specific size:
+        High quality with transparency:
             tool = OpenAIImageGeneration(
-                size="1024x1536",
+                size="1024x1024",
                 quality="high",
+                background="transparent",
                 format="png"
             )
 
-        Streaming with compression:
+        Streaming generation:
             tool = OpenAIImageGeneration(
-                quality="medium",
-                format="jpeg",
-                compression=85,
-                partial_images=2
+                partial_images=2,
+                quality="medium"
             )
 
     Usage:
-        agent = Agent(provider="openai", model="gpt-5", api="responses")
+        agent = Agent(provider="openai", model="gpt-4.1-mini", api_key=key)
         response = agent.generate(
-            "Generate an image of a gray tabby cat hugging an otter with an orange scarf",
+            "Generate an image of a red circle",
             tools=["openai_image_generation"]
         )
-
-        # Access generated images
-        if response.grounding_metadata:
-            image_calls = response.grounding_metadata.get("image_generation", [])
-            for call in image_calls:
-                image_base64 = call["result"]
-                revised_prompt = call["revised_prompt"]
-
-    Prompting Tips:
-        - Use action words like "draw", "edit", "generate"
-        - For editing: "edit the first image by adding..." instead of "combine"
-        - Be specific about style, composition, and details
-        - The model automatically optimizes prompts for better results
     """
 
     def __init__(
@@ -102,25 +63,17 @@ class OpenAIImageGeneration:
         compression: Optional[int] = None,
         background: Optional[str] = None,
         partial_images: Optional[int] = None,
-    ) -> None:
-        """Initialize OpenAI Image Generation tool.
-
-        Args:
-            size: Image dimensions or "auto"
-            quality: Rendering quality or "auto"
-            format: Output format (png, jpeg, webp)
-            compression: Compression level 0-100 for JPEG/WebP
-            background: Background type or "auto"
-            partial_images: Number of streaming partial images (1-3)
-        """
+        input_fidelity: Optional[str] = None,
+    ):
         self.size = size
         self.quality = quality
         self.format = format
         self.compression = compression
         self.background = background
         self.partial_images = partial_images
+        self.input_fidelity = input_fidelity
 
-        # Validate inputs
+        # Validate configuration
         self._validate_configuration()
 
     def _validate_configuration(self) -> None:
@@ -138,7 +91,7 @@ class OpenAIImageGeneration:
             if self.size not in valid_sizes:
                 raise ValueError(f"size must be one of {valid_sizes}, got: {self.size}")
 
-        # Validate quality
+        # Validate quality (Responses API values)
         if self.quality is not None:
             valid_qualities = {"low", "medium", "high", "auto"}
             if self.quality not in valid_qualities:
@@ -159,13 +112,10 @@ class OpenAIImageGeneration:
             if not isinstance(self.compression, int) or not (
                 0 <= self.compression <= 100
             ):
-                raise ValueError(
-                    f"compression must be an integer between 0-100, got: {self.compression}"
-                )
-            # Compression only valid for JPEG and WebP
+                raise ValueError(f"compression must be 0-100, got: {self.compression}")
             if self.format and self.format not in {"jpeg", "webp"}:
                 raise ValueError(
-                    f"compression only valid for jpeg/webp formats, got format: {self.format}"
+                    f"compression only valid for jpeg/webp, got format: {self.format}"
                 )
 
         # Validate background
@@ -179,17 +129,25 @@ class OpenAIImageGeneration:
         # Validate partial_images
         if self.partial_images is not None:
             if not isinstance(self.partial_images, int) or not (
-                1 <= self.partial_images <= 3
+                0 <= self.partial_images <= 3
             ):
                 raise ValueError(
-                    f"partial_images must be an integer between 1-3, got: {self.partial_images}"
+                    f"partial_images must be 0-3, got: {self.partial_images}"
+                )
+
+        # Validate input_fidelity
+        if self.input_fidelity is not None:
+            valid_fidelity = {"low", "high"}
+            if self.input_fidelity not in valid_fidelity:
+                raise ValueError(
+                    f"input_fidelity must be one of {valid_fidelity}, got: {self.input_fidelity}"
                 )
 
     def spec(self) -> ToolSpec:
-        """Generate ToolSpec for OpenAI Image Generation tool."""
+        """Generate ToolSpec for OpenAI Image Generation tool (Responses API)."""
         provider_config: Dict[str, Any] = {}
 
-        # Add all configuration options
+        # Add all configuration options for the Responses API image_generation tool
         if self.size is not None:
             provider_config["size"] = self.size
         if self.quality is not None:
@@ -202,13 +160,15 @@ class OpenAIImageGeneration:
             provider_config["background"] = self.background
         if self.partial_images is not None:
             provider_config["partial_images"] = self.partial_images
+        if self.input_fidelity is not None:
+            provider_config["input_fidelity"] = self.input_fidelity
 
         return ToolSpec(
             name="image_generation",
             description="OpenAI Image Generation tool for creating and editing images (Responses API)",
             input_schema={},  # Not used for provider-native tools
-            requires_network=False,  # Server-side generation
-            requires_filesystem=False,  # Base64 output, no local files
+            requires_network=True,
+            requires_filesystem=False,
             provider="openai",
             provider_type="image_generation",
             provider_config=provider_config or None,
@@ -216,13 +176,12 @@ class OpenAIImageGeneration:
 
 
 class OpenAIImageGenerationAdvanced:
-    """Advanced factory for OpenAI Image Generation with multi-turn support.
+    """Advanced factory for multi-turn image editing with Responses API.
 
-    Provides explicit support for multi-turn image editing workflows
-    with previous response ID and image ID referencing.
-
-    This class demonstrates the advanced patterns but users typically
-    use the simpler OpenAIImageGeneration class.
+    Supports:
+    - Previous response ID references for context
+    - Specific image generation call ID references
+    - Multi-turn conversational editing
     """
 
     def __init__(
@@ -231,14 +190,7 @@ class OpenAIImageGenerationAdvanced:
         previous_response_id: Optional[str] = None,
         image_generation_call_id: Optional[str] = None,
         **kwargs: Any,
-    ) -> None:
-        """Initialize advanced image generation tool.
-
-        Args:
-            previous_response_id: Reference to previous response for context
-            image_generation_call_id: Reference to specific image call for editing
-            **kwargs: Standard image generation parameters
-        """
+    ):
         self.previous_response_id = previous_response_id
         self.image_generation_call_id = image_generation_call_id
         self.base_tool = OpenAIImageGeneration(**kwargs)
@@ -261,89 +213,61 @@ class OpenAIImageGenerationAdvanced:
         return base_spec
 
 
-# Convenience factory functions for common use cases
+# Convenience factory functions
 def create_basic_image_generation() -> ToolSpec:
-    """Create basic image generation tool with default settings.
-
-    Returns:
-        ToolSpec for basic image generation
-    """
+    """Create basic image generation tool with default settings."""
     return OpenAIImageGeneration().spec()
 
 
-def create_high_quality_image_generation(
-    size: str = "1024x1536", format: str = "png"
-) -> ToolSpec:
-    """Create high-quality image generation tool.
-
-    Args:
-        size: Image dimensions (default: 1024x1536)
-        format: Output format (default: png)
-
-    Returns:
-        ToolSpec for high-quality image generation
-    """
-    return OpenAIImageGeneration(size=size, quality="high", format=format).spec()
+def create_hd_image_generation(size: str = "1024x1024") -> ToolSpec:
+    """Create HD quality image generation tool."""
+    return OpenAIImageGeneration(quality="high", size=size).spec()
 
 
-def create_streaming_image_generation(
-    partial_images: int = 2, quality: str = "medium"
-) -> ToolSpec:
-    """Create streaming image generation tool with progressive rendering.
-
-    Args:
-        partial_images: Number of partial images to stream (1-3)
-        quality: Rendering quality
-
-    Returns:
-        ToolSpec for streaming image generation
-    """
-    return OpenAIImageGeneration(partial_images=partial_images, quality=quality).spec()
-
-
-def create_compressed_image_generation(
-    format: str = "jpeg", compression: int = 85, quality: str = "medium"
-) -> ToolSpec:
-    """Create compressed image generation tool for smaller file sizes.
-
-    Args:
-        format: Output format (jpeg or webp)
-        compression: Compression level 0-100
-        quality: Rendering quality
-
-    Returns:
-        ToolSpec for compressed image generation
-    """
+def create_transparent_image_generation() -> ToolSpec:
+    """Create image generation tool with transparent background."""
     return OpenAIImageGeneration(
-        format=format, compression=compression, quality=quality
+        background="transparent", format="png", quality="high"
     ).spec()
 
 
-# Image format and size constants for reference
-SUPPORTED_FORMATS = {
-    "png": "Portable Network Graphics (lossless, supports transparency)",
-    "jpeg": "Joint Photographic Experts Group (lossy, smaller files)",
-    "webp": "WebP format (modern, efficient compression)",
+def create_streaming_image_generation(partial_images: int = 2) -> ToolSpec:
+    """Create streaming image generation with partial images."""
+    return OpenAIImageGeneration(partial_images=partial_images, quality="medium").spec()
+
+
+# Constants for reference
+SUPPORTED_MODELS = {
+    "gpt-4.1-mini": "Cost-effective model with image generation",
+    "gpt-4.1": "Advanced model with image generation",
+    "gpt-5": "Latest model with image generation",
+    "gpt-4o": "Multimodal model with image generation",
 }
 
 SUPPORTED_SIZES = {
-    "1024x1024": "Square format (1:1 aspect ratio)",
-    "1024x1536": "Portrait format (2:3 aspect ratio)",
-    "1536x1024": "Landscape format (3:2 aspect ratio)",
-    "1792x1024": "Wide landscape format (7:4 aspect ratio)",
-    "1024x1792": "Tall portrait format (4:7 aspect ratio)",
-    "auto": "Model automatically selects best size for prompt",
+    "1024x1024": "Square format (1:1)",
+    "1024x1536": "Portrait format (2:3)",
+    "1536x1024": "Landscape format (3:2)",
+    "1792x1024": "Wide landscape (7:4)",
+    "1024x1792": "Tall portrait (4:7)",
+    "auto": "Model automatically selects best size",
 }
 
-QUALITY_LEVELS = {
-    "low": "Fast generation, lower detail",
-    "medium": "Balanced speed and quality",
-    "high": "Slower generation, maximum detail",
-    "auto": "Model automatically selects best quality for prompt",
+QUALITY_OPTIONS = {
+    "low": "Fast generation, lower detail (272 tokens)",
+    "medium": "Balanced speed and quality (1056 tokens)",
+    "high": "Maximum detail, slower (4160 tokens)",
+    "auto": "Model automatically selects quality",
 }
 
 BACKGROUND_OPTIONS = {
-    "transparent": "Transparent background (PNG format recommended)",
+    "transparent": "Transparent background (PNG/WebP only)",
     "opaque": "Solid background color",
-    "auto": "Model automatically selects best background type",
+    "auto": "Model automatically selects background type",
+}
+
+FORMAT_OPTIONS = {
+    "png": "Lossless format, supports transparency",
+    "jpeg": "Lossy format, smaller files, faster",
+    "webp": "Modern format, efficient compression",
 }

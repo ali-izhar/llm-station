@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 from ..schemas.messages import Message, ModelResponse
 from ..schemas.tooling import ToolSpec
@@ -18,6 +18,10 @@ class ModelConfig:
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     max_tokens: Optional[int] = None
+    # Common parameters across providers
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    stop: Optional[Union[str, List[str]]] = None
     # Structured output support (JSON Schema). Providers may ignore if unsupported.
     response_json_schema: Optional[Dict[str, Any]] = None
     # Whether to stream (not implemented yet)

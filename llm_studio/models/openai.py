@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 
 from .base import ModelConfig, ProviderAdapter
@@ -16,8 +16,12 @@ class OpenAIConfig:
 
     # API selection
     api: Optional[str] = None  # "responses" or "chat"
+    # Chat Completions specific
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+    logit_bias: Optional[Dict[str, float]] = None
+    user: Optional[str] = None
+    seed: Optional[int] = None
     # Responses API specific
-    tool_choice: Optional[str] = None
     include: Optional[List[str]] = None  # e.g., ["web_search_call.action.sources"]
     reasoning: Optional[Dict[str, Any]] = (
         None  # e.g., {"effort": "low"|"medium"|"high"}
@@ -666,6 +670,29 @@ class OpenAIProvider(ProviderAdapter):
             request["top_p"] = config.top_p
         if config.max_tokens is not None:
             request["max_tokens"] = config.max_tokens
+        if config.frequency_penalty is not None:
+            request["frequency_penalty"] = config.frequency_penalty
+        if config.presence_penalty is not None:
+            request["presence_penalty"] = config.presence_penalty
+        if config.stop is not None:
+            request["stop"] = config.stop
+
+        # Extract OpenAI-specific parameters from provider_kwargs
+        openai_config = OpenAIConfig()
+        if config.provider_kwargs:
+            for key, value in config.provider_kwargs.items():
+                if hasattr(openai_config, key):
+                    setattr(openai_config, key, value)
+
+        # Add OpenAI-specific Chat Completions parameters
+        if openai_config.tool_choice is not None:
+            request["tool_choice"] = openai_config.tool_choice
+        if openai_config.logit_bias is not None:
+            request["logit_bias"] = openai_config.logit_bias
+        if openai_config.user is not None:
+            request["user"] = openai_config.user
+        if openai_config.seed is not None:
+            request["seed"] = openai_config.seed
 
         # Add tools (excluding web search for search models - they handle it natively)
         if tools:

@@ -58,7 +58,7 @@ register_provider_tool(
 )  # Default to OpenAI (most advanced)
 register_provider_tool(
     "image_generation", lambda: OpenAIImageGeneration().spec()
-)  # Default to OpenAI (only provider)
+)  # Default to OpenAI Responses API
 register_provider_tool(
     "url_context", lambda: GoogleUrlContext().spec()
 )  # Default to Google
