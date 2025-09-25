@@ -498,74 +498,6 @@ def safe_generate(agent, prompt, tools=None):
     return response
 ```
 
-## Tool Compatibility Matrix
-
-| Tool | Gemini 2.5 Pro | Gemini 2.5 Flash | Gemini 2.5 Image | Gemini 2.0 | Gemini 1.5 |
-|------|----------------|-------------------|-------------------|-------------|-------------|
-| `google_search` | ✅ Best | ✅ Fast | ✅ Works | ✅ Good | ❌ Use legacy |
-| `google_search_retrieval` | ✅ Legacy | ✅ Legacy | ✅ Legacy | ✅ Legacy | ✅ Native |
-| `google_code_execution` | ✅ Advanced | ✅ Standard | ✅ Works | ✅ Good | ✅ Basic |
-| `google_url_context` | ✅ Deep Analysis | ✅ Fast | ✅ Works | ✅ Good | ✅ Basic |
-| `google_image_generation` | ❌ No Support | ❌ No Support | ✅ Native | ❌ No Support | ❌ No Support |
-
-## Troubleshooting
-
-### Common Issues
-
-**Issue**: `'NoneType' object is not iterable`
-```python
-# Solution: Ensure proper tool handling
-agent = Agent(provider="google", model="gemini-2.5-flash", api_key=api_key)
-response = agent.generate("Simple question")  # No tools - should work
-```
-
-**Issue**: Image generation not working
-```python
-# Solution: Use correct model
-image_agent = Agent(
-    provider="google", 
-    model="gemini-2.5-flash-image-preview",  # Must use image model
-    api_key=api_key
-)
-```
-
-**Issue**: Search not finding recent information
-```python
-# Solution: Use specific, current queries
-response = agent.generate(
-    "What happened in AI technology in the last 7 days?",  # Be specific about timeframe
-    tools=["google_search"]
-)
-```
-
-**Issue**: Code execution timeouts
-```python
-# Solution: Simplify complex computations
-response = agent.generate(
-    "Calculate factorial of 10 (not 1000) and show the result",  # Reasonable scope
-    tools=["google_code_execution"]
-)
-```
-
-### Model Access Issues
-
-If you encounter model access errors:
-
-1. **Check API Key**: Ensure `GEMINI_API_KEY` is valid
-2. **Model Availability**: Some models require specific access levels
-3. **Region Restrictions**: Certain models may not be available in all regions
-4. **Billing**: Advanced features like image generation may require billing enabled
-
-```python
-# Test basic access first
-try:
-    agent = Agent(provider="google", model="gemini-2.5-flash", api_key=api_key)
-    response = agent.generate("Hello, are you working?")
-    print("✅ Basic access working")
-except Exception as e:
-    print(f"❌ Basic access failed: {e}")
-```
-
 ## Batch API for Large-Scale Processing
 
 Google's Batch API provides high-throughput, cost-effective processing for large datasets:
@@ -700,38 +632,4 @@ print(f"Status: {batch_job.state.value}")
 
 # Cancel if needed
 cancelled_job = processor.cancel_batch_job("batches/job-to-cancel")
-```
-
-## Next Steps
-
-1. **Explore Examples**: Run `python examples/google_quickstart.py`
-2. **Advanced Features**: Check Google AI Studio for model-specific capabilities
-3. **Integration**: Combine Google tools with other providers for comprehensive workflows
-4. **Production**: Review the error handling and performance optimization sections
-5. **Batch Processing**: Use Google Batch API for large-scale operations
-
-For the latest Google AI developments and model updates, monitor:
-- [Google AI for Developers](https://ai.google.dev/)
-- [Gemini API Documentation](https://ai.google.dev/gemini-api/docs)
-- [Google AI Studio](https://aistudio.google.com/)
-
-## API Reference
-
-### Quick Tool Reference
-```python
-# All Google tools by string name
-tools = [
-    "google_search",           # Gemini 2.0+ search with grounding
-    "google_search_retrieval", # Legacy Gemini 1.5 search  
-    "google_code_execution",   # Python code execution
-    "google_url_context",      # URL content processing
-    "google_image_generation"  # Image generation (requires specific model)
-]
-
-# Generic names (default to Google)
-generic_tools = [
-    "web_search",     # Defaults to google_search
-    "code_execution", # Defaults to google_code_execution  
-    "url_context"     # Defaults to google_url_context
-]
 ```
