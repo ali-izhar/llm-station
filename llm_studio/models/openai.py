@@ -145,13 +145,15 @@ class OpenAIProvider(ProviderAdapter):
         - Citations and annotations from web search
         - Error handling for both APIs
         """
-        # Detect Responses API format (array or has specific fields)
-        if (
-            isinstance(payload, list)
-            or "output" in payload
-            or "text" in payload
-            or "status" in payload
-        ):
+        # Handle OpenAI SDK response format
+        # The model_dump() returns a dict with 'output' field containing the actual response array
+        if isinstance(payload, dict) and "output" in payload:
+            return OpenAIProvider._parse_responses_api(payload["output"])
+        # Detect Responses API format (direct array)
+        elif isinstance(payload, list):
+            return OpenAIProvider._parse_responses_api(payload)
+        # Other response formats
+        elif isinstance(payload, dict) and ("text" in payload or "status" in payload):
             return OpenAIProvider._parse_responses_api(payload)
         else:
             return OpenAIProvider._parse_chat_completions_api(payload)
@@ -166,7 +168,8 @@ class OpenAIProvider(ProviderAdapter):
         - Image generation calls and base64 results
         - Message content and annotations
         """
-        content = ""
+        # Initialize variables
+        content_parts = []
         citations = []
         sources = []
         file_citations = []
@@ -185,8 +188,9 @@ class OpenAIProvider(ProviderAdapter):
                         "id": item.get("id"),
                         "status": item.get("status"),
                         "action": item.get("action", {}),
+                        "query": item.get("action", {}).get("query", ""),
+                        "search_type": item.get("action", {}).get("type", ""),
                     }
-
                     # Extract sources if available
                     action = item.get("action", {})
                     if "sources" in action:
@@ -208,13 +212,9 @@ class OpenAIProvider(ProviderAdapter):
                         "id": item.get("id"),
                         "status": item.get("status"),
                         "revised_prompt": item.get("revised_prompt"),
-                        "result": item.get("result"),  # Base64-encoded image
-                        "partial_results": item.get(
-                            "partial_results", []
-                        ),  # Streaming partials
+                        "result": item.get("result"),
+                        "partial_results": item.get("partial_results", []),
                     }
-
-                    # Add image generation parameters if present
                     for param in [
                         "size",
                         "quality",
@@ -224,51 +224,59 @@ class OpenAIProvider(ProviderAdapter):
                     ]:
                         if param in item:
                             image_call[param] = item[param]
-
                     image_generation_metadata.append(image_call)
 
                 # Message content with text and citations
                 elif item_type == "message" and "content" in item:
-                    for content_item in item["content"]:
-                        if content_item.get("type") == "output_text":
-                            content += content_item.get("text", "")
+                    message_content = item.get("content", [])
+                    if isinstance(message_content, list):
+                        for content_item in message_content:
+                            if (
+                                isinstance(content_item, dict)
+                                and content_item.get("type") == "output_text"
+                            ):
+                                text = content_item.get("text", "")
+                                if text:
+                                    content_parts.append(text)
 
-                            # Extract all types of annotations
-                            annotations = content_item.get("annotations", [])
-                            for annotation in annotations:
-                                annotation_type = annotation.get("type")
+                                # Extract annotations
+                                annotations = content_item.get("annotations", [])
+                                for annotation in annotations:
+                                    annotation_type = annotation.get("type")
 
-                                # Web search URL citations
-                                if annotation_type == "url_citation":
-                                    citations.append(
-                                        {
-                                            "type": "url_citation",
-                                            "url": annotation.get("url"),
-                                            "title": annotation.get("title"),
-                                            "start_index": annotation.get(
-                                                "start_index"
-                                            ),
-                                            "end_index": annotation.get("end_index"),
-                                        }
-                                    )
+                                    if annotation_type == "url_citation":
+                                        citations.append(
+                                            {
+                                                "type": "url_citation",
+                                                "url": annotation.get("url"),
+                                                "title": annotation.get("title"),
+                                                "start_index": annotation.get(
+                                                    "start_index"
+                                                ),
+                                                "end_index": annotation.get(
+                                                    "end_index"
+                                                ),
+                                            }
+                                        )
 
-                                # Code interpreter file citations
-                                elif annotation_type == "container_file_citation":
-                                    file_citations.append(
-                                        {
-                                            "type": "container_file_citation",
-                                            "file_id": annotation.get("file_id"),
-                                            "filename": annotation.get("filename"),
-                                            "container_id": annotation.get(
-                                                "container_id"
-                                            ),
-                                            "start_index": annotation.get(
-                                                "start_index"
-                                            ),
-                                            "end_index": annotation.get("end_index"),
-                                            "index": annotation.get("index"),
-                                        }
-                                    )
+                                    elif annotation_type == "container_file_citation":
+                                        file_citations.append(
+                                            {
+                                                "type": "container_file_citation",
+                                                "file_id": annotation.get("file_id"),
+                                                "filename": annotation.get("filename"),
+                                                "container_id": annotation.get(
+                                                    "container_id"
+                                                ),
+                                                "start_index": annotation.get(
+                                                    "start_index"
+                                                ),
+                                                "end_index": annotation.get(
+                                                    "end_index"
+                                                ),
+                                                "index": annotation.get("index"),
+                                            }
+                                        )
 
         # Handle single object format (alternative Responses API format)
         elif isinstance(payload, dict):
@@ -279,12 +287,28 @@ class OpenAIProvider(ProviderAdapter):
             elif "output_text" in payload:
                 content = payload["output_text"]
 
-        # Handle empty content
-        if not content:
+        # Assemble final content from parts
+        final_content = "\n".join(content_parts).strip() if content_parts else ""
+
+        # Handle single object format (alternative Responses API format)
+        if not final_content and isinstance(payload, dict):
+            if "output" in payload:
+                final_content = str(payload["output"])
+            elif "text" in payload:
+                final_content = str(payload["text"])
+            elif "output_text" in payload:
+                final_content = payload["output_text"]
+
+        # Final fallback: try extraction function
+        if not final_content:
+            final_content = OpenAIProvider._extract_text_from_raw_payload(payload)
+
+        # Error handling
+        if not final_content:
             if isinstance(payload, dict) and "error" in payload:
-                content = f"API Error: {payload['error']}"
+                final_content = f"API Error: {payload['error']}"
             else:
-                content = "No content returned from Responses API"
+                final_content = "No content extracted from Responses API"
 
         # Build comprehensive metadata
         metadata = {}
@@ -303,11 +327,37 @@ class OpenAIProvider(ProviderAdapter):
 
         # Responses API handles tools server-side, so no local tool_calls
         return ModelResponse(
-            content=content,
+            content=final_content,
             tool_calls=[],
             raw=payload,
             grounding_metadata=metadata if metadata else None,
         )
+
+    @staticmethod
+    def _extract_text_from_raw_payload(payload: Any) -> str:
+        """Extract readable text content from raw OpenAI response payload."""
+        if isinstance(payload, list):
+            # Look for message items in the response array
+            for item in payload:
+                if item.get("type") == "message":
+                    content_items = item.get("content", [])
+                    if isinstance(content_items, list):
+                        for content_item in content_items:
+                            if (
+                                isinstance(content_item, dict)
+                                and content_item.get("type") == "output_text"
+                            ):
+                                text = content_item.get("text", "")
+                                if text and text.strip():
+                                    return text.strip()
+        elif isinstance(payload, dict):
+            # Handle single object format
+            if "output_text" in payload:
+                return str(payload["output_text"])
+            elif "text" in payload:
+                return str(payload["text"])
+
+        return "Content extraction failed - unable to parse OpenAI response"
 
     @staticmethod
     def _parse_chat_completions_api(payload: Dict[str, Any]) -> ModelResponse:
@@ -536,7 +586,10 @@ class OpenAIProvider(ProviderAdapter):
 
             client = openai.OpenAI(api_key=self.api_key)
             response = client.responses.create(**request)
-            return self._parse_response(response.model_dump())
+
+            # Use model_dump() to get the proper dictionary structure
+            response_data = response.model_dump()
+            return self._parse_response(response_data)
 
         except ImportError:
             return ModelResponse(

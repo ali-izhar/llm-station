@@ -6,3 +6,7 @@ openai>=1.40.0
 anthropic>=0.31.0
 google-genai>=0.3.0
 
+# Logging and CLI dependencies
+rich>=13.0.0
+python-dotenv>=1.0.0
+

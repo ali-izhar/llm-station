@@ -22,6 +22,14 @@ from .schemas.messages import (
     ToolMessage,
 )
 from .schemas.tooling import ToolSpec
+from .logging import (
+    setup_logging,
+    get_logger,
+    LogLevel,
+    LogFormat,
+    AgentLogger,
+    AgentLoggerContext,
+)
 
 __all__ = [
     "Agent",
@@ -35,4 +43,10 @@ __all__ = [
     "AssistantMessage",
     "ToolMessage",
     "ToolSpec",
+    "setup_logging",
+    "get_logger",
+    "LogLevel",
+    "LogFormat",
+    "AgentLogger",
+    "AgentLoggerContext",
 ]

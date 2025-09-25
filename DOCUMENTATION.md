@@ -403,6 +403,41 @@ register_tool("my_tool", MyTool)
 response = agent.generate("Use my custom tool", tools=["my_tool"])
 ```
 
+## 🔍 Logging System
+
+### Enable Professional Logging
+```bash
+# Basic logging to console + auto-save to logs/
+python examples/agent_with_logging.py -l "Search for AI news"
+
+# Warning-level logging (errors + warnings)
+python examples/agent_with_logging.py -l --log-level warn "Research and analyze data"
+
+# Debug logging with full API details
+python examples/agent_with_logging.py -l --log-level debug "Complex workflow"
+
+# JSON logs (auto-saved to logs/YYYYMMDD_HHMMSS_provider_model.log)
+python examples/agent_with_logging.py -l --log-format json "Data analysis task"
+
+# Save to custom log file
+python examples/agent_with_logging.py -lf my_session.log "Custom logging"
+```
+
+### Logging in Code
+```python
+from llm_studio import Agent, setup_logging, LogLevel
+
+# Enable logging with professional levels
+setup_logging(level=LogLevel.INFO)        # General information (default)
+setup_logging(level=LogLevel.DEBUG)       # Detailed debugging information
+
+# Use agent - automatic logging + timestamped file in logs/
+agent = Agent(provider="openai", model="gpt-4o", api_key=key)
+result = agent.generate("Complex task", tools=["openai_web_search", "openai_code_interpreter"])
+
+# Logs show: tool selection, API calls, provider tool execution, metadata, timing
+```
+
 ## 🧪 Testing
 
 ### Mock Tests (Fast, No API Costs)
