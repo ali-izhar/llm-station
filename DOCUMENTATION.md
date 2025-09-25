@@ -213,6 +213,84 @@ search_response = agents["search"].generate(
 )
 ```
 
+## 🔄 OpenAI Batch API
+
+### Async Batch Processing (Lower Costs, Higher Limits)
+```python
+from llm_studio import OpenAIBatchProcessor, BatchTask, SystemMessage, UserMessage
+
+# Create batch processor
+processor = OpenAIBatchProcessor(api_key=openai_key)
+
+# Create batch tasks
+tasks = []
+for i, description in enumerate(movie_descriptions):
+    task = processor.create_task(
+        custom_id=f"movie-{i}",
+        model="gpt-4o-mini",
+        messages=[
+            SystemMessage("Categorize this movie and provide a summary"),
+            UserMessage(description)
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.1
+    )
+    tasks.append(task)
+
+# Submit batch job
+batch_job = processor.submit_batch(tasks, metadata={"project": "movie_analysis"})
+print(f"Batch job submitted: {batch_job.id}")
+
+# Wait for completion (up to 24h, usually faster)
+completed_job = processor.wait_for_completion(batch_job.id)
+
+# Download results
+results = processor.download_results(completed_job)
+for result in results:
+    print(f"{result.custom_id}: {result.response}")
+```
+
+### Batch CLI Tool
+```bash
+# Create sample input file
+python examples/batch_cli.py sample
+
+# Create batch job from text file
+python examples/batch_cli.py create sample_movies.txt --model gpt-4o-mini
+
+# Check batch status
+python examples/batch_cli.py status batch_abc123
+
+# Download results when completed
+python examples/batch_cli.py results batch_abc123 --output results.jsonl
+
+# List recent batch jobs
+python examples/batch_cli.py list
+```
+
+### Vision Batch Processing
+```python
+# Image captioning batch
+file_path = processor.process_image_batch(
+    image_urls=["https://img1.jpg", "https://img2.jpg"],
+    texts=["Furniture item 1", "Furniture item 2"], 
+    system_prompt="Generate short captions for furniture images",
+    model="gpt-4o-mini",
+    max_tokens=300
+)
+
+# Submit and process
+file_id = processor.upload_batch_file(file_path)
+batch_job = processor.create_batch_job(file_id)
+```
+
+### Batch API Benefits
+- **Lower costs**: Significant savings vs real-time API
+- **Higher rate limits**: Process more requests
+- **All parameters**: Same as Chat Completions API
+- **Vision support**: Process images in batches
+- **JSON outputs**: Structured data extraction
+
 ## 🔧 OpenAI Tools Reference
 
 ### Web Search Tool

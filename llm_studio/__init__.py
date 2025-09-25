@@ -30,6 +30,14 @@ from .logging import (
     AgentLogger,
     AgentLoggerContext,
 )
+from .batch import (
+    OpenAIBatchProcessor,
+    BatchTask,
+    BatchResult,
+    BatchJob,
+    BatchStatus,
+    CompletionWindow,
+)
 
 __all__ = [
     "Agent",
@@ -49,4 +57,10 @@ __all__ = [
     "LogFormat",
     "AgentLogger",
     "AgentLoggerContext",
+    "OpenAIBatchProcessor",
+    "BatchTask",
+    "BatchResult",
+    "BatchJob",
+    "BatchStatus",
+    "CompletionWindow",
 ]
