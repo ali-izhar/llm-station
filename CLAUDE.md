@@ -36,10 +36,11 @@ advanced_agent = Agent(
 # Basic chat
 response = agent.generate("What is quantum computing?")
 
-# With server tools
-response = agent.generate("Search for TypeScript 5.5 updates", tools=["anthropic_web_search"])
-response = agent.generate("Fetch content from https://docs.example.com", tools=["anthropic_web_fetch"])
-response = agent.generate("Calculate statistics with Python", tools=["anthropic_code_execution"])
+# With smart tools - simple, memorable names
+response = agent.generate("Search for TypeScript 5.5 updates", tools=["search"])
+response = agent.generate("Fetch content from https://docs.example.com", tools=["fetch"])
+response = agent.generate("Calculate statistics with Python", tools=["code"])
+response = agent.generate("Format results as JSON", tools=["json"])
 ```
 
 ## Supported Models & Tools
@@ -51,12 +52,72 @@ response = agent.generate("Calculate statistics with Python", tools=["anthropic_
 - `claude-3-7-sonnet-20250219` - Sonnet 3.7 with tool support
 - `claude-3-5-haiku-latest` - Fast model with basic tools
 
-### Tools
-- `anthropic_web_search` - Real-time web search with citations (server-side)
-- `anthropic_web_fetch` - Direct web content fetching (server-side)
-- `anthropic_code_execution` - Bash + Python execution with file manipulation (beta)
-- `json_format` - Local JSON formatting
-- `fetch_url` - Local URL fetching
+### Available Tools
+- `search` - Web search with citations (uses Anthropic web search)
+- `code` - Code execution with bash and file operations (uses Anthropic execution)
+- `fetch` - Web content fetching (local tool)
+- `json` - JSON formatting (local tool)
+
+### Tool Aliases (Alternative Names)
+- `websearch`, `web_search` → `search`
+- `python`, `execute`, `compute`, `run` → `code`
+- `format_json`, `json_format` → `json`
+- `download` → `fetch`
+
+## Smart Tools System
+
+### Overview
+The smart tools system provides generic, memorable tool names that automatically route to the best available provider. When using a Claude agent, smart tools will automatically use Anthropic's implementations where available.
+
+### Usage Examples
+```python
+# Smart tools automatically use Anthropic implementations
+response = agent.generate("Research AI safety", tools=["search"])
+# → Routes to Anthropic web search with citations
+
+response = agent.generate("Analyze data trends", tools=["code"])
+# → Routes to Anthropic code execution (if beta access available)
+
+response = agent.generate("Format results", tools=["json"])
+# → Uses local json_format tool
+
+# Combined research workflow
+response = agent.generate(
+    "Research renewable energy, analyze trends, and create report",
+    tools=["search", "code", "json"]
+)
+```
+
+### Why Anthropic Tools Excel
+- **Search**: Real-time web search with automatic citations and domain filtering
+- **Code**: Bash + Python execution with file manipulation and container persistence
+- **Fetch**: Advanced web content fetching with security controls (when available)
+- **Token Management**: Built-in rate limiting and usage tracking
+
+### Cross-Provider Compatibility
+```python
+# Same tools work with any provider
+claude_agent = Agent(provider="anthropic", model="claude-sonnet-4", api_key=claude_key)
+openai_agent = Agent(provider="openai", model="gpt-4o-mini", api_key=openai_key)
+
+# Identical interface, different implementations
+claude_response = claude_agent.generate("Research AI", tools=["search"])
+openai_response = openai_agent.generate("Research AI", tools=["search"])
+```
+
+### Advanced Features
+```python
+# Provider preference (optional - already using Claude)
+response = agent.generate(
+    "Search for information",
+    tools=[{"name": "search", "provider_preference": "anthropic"}]
+)
+
+# Tool discovery
+from llm_studio import get_available_tools, get_tool_info
+tools = get_available_tools()
+search_info = get_tool_info("search")
+```
 
 ## JSON Response Formats
 
@@ -361,7 +422,7 @@ Research renewable energy developments:
 4. Create summary report
 
 Include citations and data sources.
-""", tools=["anthropic_web_search", "anthropic_web_fetch", "anthropic_code_execution"])
+""", tools=["search", "fetch", "code"])
 
 # Access comprehensive metadata
 if response.grounding_metadata:
@@ -410,7 +471,7 @@ Research and analyze AI safety:
 4. Create structured summary
 
 Focus on 2024 developments with proper citations.
-""", tools=["anthropic_web_search", "anthropic_web_fetch"])
+""", tools=["search", "fetch"])
 
 # Rich metadata access
 metadata = response.grounding_metadata

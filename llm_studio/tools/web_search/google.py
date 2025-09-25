@@ -6,34 +6,9 @@ from ...schemas.tooling import ToolSpec
 
 
 class GoogleWebSearch:
-    """Factory for Google Gemini 2.0+ search tool with automatic grounding.
+    """Factory for Google Gemini search tool.
 
-    The new search tool in Gemini 2.0 models automatically retrieves accurate and
-    grounded artifacts from the web. Unlike the legacy search grounding in Gemini 1.5,
-    this tool doesn't require dynamic retrieval threshold configuration.
-
-    Key features:
-    - Automatic search result retrieval and grounding
-    - Citations and sources included in response metadata
-    - Search entry point with rendered content for Google Search Suggestions
-    - Enhanced grounding chunks with web information
-    - Works with Gemini 2.0+ models (gemini-2.5-flash, gemini-2.5-pro, etc.)
-
-    Usage:
-        agent = Agent(provider="google", model="gemini-2.5-flash", api_key=api_key)
-        response = agent.generate(
-            "Research the latest AI developments",
-            tools=["google_search"]
-        )
-
-        # Access grounding metadata
-        if response.grounding_metadata:
-            sources = response.grounding_metadata.get("sources", [])
-            citations = response.grounding_metadata.get("citations", [])
-            search_entry_point = response.grounding_metadata.get("search_entry_point")
-
-    Note: You must enable Google Search Suggestions to display search queries
-    that are included in the grounded response's metadata.
+    Provides automatic search grounding and citations for Gemini 2.0+ models.
     """
 
     def __init__(self) -> None:
@@ -52,15 +27,7 @@ class GoogleWebSearch:
 
 
 class GoogleSearchRetrieval:
-    """Factory for legacy Google Search Retrieval tool (Gemini 1.5).
-
-    Allows dynamic retrieval configuration when using legacy models. For new
-    models prefer GoogleWebSearch.
-
-    Args:
-        mode: Retrieval mode. Valid values: "MODE_DYNAMIC"
-        dynamic_threshold: Confidence threshold for search (0.0-1.0). Only search if confidence > threshold
-    """
+    """Factory for Google Search Retrieval tool with dynamic configuration."""
 
     def __init__(
         self,

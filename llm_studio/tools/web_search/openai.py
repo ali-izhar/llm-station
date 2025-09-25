@@ -7,53 +7,10 @@ from ...schemas.tooling import ToolSpec
 
 
 class OpenAIWebSearch:
-    """Factory for OpenAI built-in web search tool (Responses API).
+    """Factory for OpenAI web search tool.
 
-    OpenAI's web search tool allows models to access up-to-date information from
-    the internet with sourced citations. Available through the Responses API with
-    three types of search:
-
-    1. Non-reasoning web search: Fast lookups, model passes query to search tool
-    2. Agentic search: Reasoning models manage search process, can perform multiple searches
-    3. Deep research: Extended investigations using hundreds of sources (several minutes)
-
-    This factory produces a provider-native ToolSpec for use with OpenAI's Responses API.
-    No local execution occurs - all search is handled server-side by OpenAI.
-
-    Args:
-        allowed_domains: List of up to 20 domains to limit search results to.
-                        Domains should NOT include http/https prefix (e.g., 'openai.com')
-        user_location: Geographic location for search refinement with keys:
-                      - country: Two-letter ISO country code (e.g., 'US', 'GB')
-                      - city: Free text city name (e.g., 'Minneapolis')
-                      - region: Free text region name (e.g., 'Minnesota')
-                      - timezone: IANA timezone (e.g., 'America/Chicago')
-        preview: Whether to use web_search_preview instead of web_search
-
-    Limitations:
-        - Some models may not support all features (refer to OpenAI documentation)
-        - Context window limited to 128K tokens
-        - User location not supported for deep research models
-        - Domain filtering only available with web_search tool (not web_search_preview)
-
-    Examples:
-        Basic search:
-            tool = OpenAIWebSearch()
-
-        With domain filtering:
-            tool = OpenAIWebSearch(
-                allowed_domains=['pubmed.ncbi.nlm.nih.gov', 'clinicaltrials.gov']
-            )
-
-        With geographic refinement:
-            tool = OpenAIWebSearch(
-                user_location={
-                    'country': 'GB',
-                    'city': 'London',
-                    'region': 'London',
-                    'timezone': 'Europe/London'
-                }
-            )
+    Provides real-time web search with citations via Responses API.
+    Supports domain filtering and geographic refinement.
     """
 
     def __init__(

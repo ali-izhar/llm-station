@@ -33,11 +33,12 @@ image_agent = Agent(
 # Basic chat
 response = agent.generate("What is AI?")
 
-# With tools
-response = agent.generate("Search AI news", tools=["google_search"])
-response = agent.generate("Calculate with Python", tools=["google_code_execution"])
-response = agent.generate("Analyze URL", tools=["google_url_context"])
-response = image_agent.generate("Generate image", tools=["google_image_generation"])
+# With smart tools - simple, memorable names
+response = agent.generate("Search AI news", tools=["search"])
+response = agent.generate("Calculate with Python", tools=["code"])
+response = agent.generate("Analyze URL content", tools=["url"])
+response = agent.generate("Format as JSON", tools=["json"])
+response = image_agent.generate("Generate image", tools=["image"])
 ```
 
 ## Supported Models & Tools
@@ -49,14 +50,65 @@ response = image_agent.generate("Generate image", tools=["google_image_generatio
 - `gemini-2.0-flash` - Previous generation, fast responses
 - `gemini-1.5-pro` - Legacy, large context window
 
-### Tools
-- `google_search` - Search with automatic grounding (Gemini 2.0+)
-- `google_search_retrieval` - Legacy search with threshold (Gemini 1.5)
-- `google_code_execution` - Python execution with visualization
-- `google_url_context` - Direct URL content processing
-- `google_image_generation` - Native image generation (2.5+ models)
-- `json_format` - Local JSON formatting
-- `fetch_url` - Local URL fetching
+### Available Tools
+- `search` - Web search with automatic grounding (uses Google search)
+- `code` - Code execution with data analysis (uses Google code execution)
+- `url` - URL content processing (uses Google URL context)
+- `image` - Image generation (uses Google native generation in Gemini 2.5+)
+- `json` - JSON formatting (local tool)
+- `fetch` - URL fetching (local tool)
+
+### Tool Aliases (Alternative Names)
+- `websearch`, `web_search` → `search`
+- `python`, `execute`, `compute`, `run` → `code`
+- `draw`, `create_image`, `generate_image` → `image`
+- `webpage`, `url_context` → `url`
+- `format_json`, `json_format` → `json`
+- `download` → `fetch`
+
+## Smart Tools System
+
+### Overview
+The smart tools system provides generic, memorable tool names that automatically route to the best available provider. When using a Google agent, smart tools will automatically use Google's implementations where available.
+
+### Usage Examples
+```python
+# Smart tools automatically use Google implementations
+response = agent.generate("Research quantum computing", tools=["search"])
+# → Routes to Google search with automatic grounding
+
+response = agent.generate("Create data visualization", tools=["code"])
+# → Routes to Google code execution with matplotlib support
+
+response = agent.generate("Process this URL content", tools=["url"])
+# → Routes to Google URL context for content extraction
+
+response = image_agent.generate("Create artwork", tools=["image"])
+# → Routes to Google image generation (Gemini 2.5+)
+
+# Combined workflow
+response = agent.generate(
+    "Research renewable energy, analyze trends, and create report",
+    tools=["search", "code", "json"]
+)
+```
+
+### Why Google Tools Excel
+- **Search**: Gemini 2.0+ provides the most advanced search grounding
+- **Code**: Best data analysis and visualization capabilities  
+- **URL**: Advanced content processing and extraction
+- **Image**: Native integration in Gemini 2.5+ models
+
+### Cross-Provider Compatibility
+```python
+# Same tools work with any provider
+openai_agent = Agent(provider="openai", model="gpt-4o-mini", api_key=openai_key)
+google_agent = Agent(provider="google", model="gemini-2.5-flash", api_key=google_key)
+
+# Identical interface, different implementations
+openai_response = openai_agent.generate("Research AI", tools=["search"])
+google_response = google_agent.generate("Research AI", tools=["search"])
+```
 
 ## JSON Response Formats
 

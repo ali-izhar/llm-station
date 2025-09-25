@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+"""
+LLM Studio Tools - Smart Tool Interface
+
+This module provides a clean, provider-agnostic tool interface using simple,
+memorable names that automatically route to the best available provider.
+
+Available Smart Tools:
+- search: Web search and research
+- code: Code execution and data analysis
+- image: Image generation and creation
+- json: JSON formatting and parsing
+- fetch: URL fetching and downloading
+- url: URL content processing and extraction
+
+Usage:
+    agent.generate("Your prompt", tools=["search", "code", "json"])
+"""
 
 from .registry import register_tool, register_provider_tool
 from .fetch_url import FetchUrlTool
@@ -16,13 +33,11 @@ from .image_generation.openai import OpenAIImageGeneration
 from .image_generation.google import GoogleImageGeneration
 from .url_context.google import GoogleUrlContext
 
-# Register built-in local tools on import
+# Register local tools
 register_tool("fetch_url", FetchUrlTool)
 register_tool("json_format", JsonFormatTool)
 
-# Register provider-native tools with default configurations
-
-# OpenAI tools
+# Register provider tools for smart routing
 register_provider_tool("openai_web_search", lambda: OpenAIWebSearch().spec())
 register_provider_tool(
     "openai_web_search_preview", lambda: OpenAIWebSearch(preview=True).spec()
@@ -34,12 +49,12 @@ register_provider_tool(
     "openai_image_generation", lambda: OpenAIImageGeneration().spec()
 )
 
-# Anthropic tools
 register_provider_tool("anthropic_web_search", lambda: AnthropicWebSearch().spec())
-# register_provider_tool("anthropic_web_fetch", lambda: AnthropicWebFetch().spec())  # Not supported in current API
-# register_provider_tool("anthropic_code_execution", lambda: AnthropicCodeExecution().spec())  # Requires beta access
+register_provider_tool("anthropic_web_fetch", lambda: AnthropicWebFetch().spec())
+register_provider_tool(
+    "anthropic_code_execution", lambda: AnthropicCodeExecution().spec()
+)
 
-# Google tools
 register_provider_tool("google_search", lambda: GoogleWebSearch().spec())
 register_provider_tool(
     "google_search_retrieval",
@@ -51,27 +66,11 @@ register_provider_tool(
     "google_image_generation", lambda: GoogleImageGeneration().spec()
 )
 
-# Register alternative tool names with best defaults for user experience
-register_provider_tool(
-    "web_search",
-    lambda: GoogleWebSearch().spec(),
-)  # Default to Google Gemini 2.0+ search (most advanced)
-register_provider_tool(
-    "code_execution", lambda: GoogleCodeExecution().spec()
-)  # Default to Google (most reliable)
-register_provider_tool(
-    "code_interpreter", lambda: OpenAICodeInterpreter().spec()
-)  # Default to OpenAI (most advanced)
-register_provider_tool(
-    "image_generation", lambda: OpenAIImageGeneration().spec()
-)  # Default to OpenAI Responses API
-register_provider_tool(
-    "url_context", lambda: GoogleUrlContext().spec()
-)  # Default to Google
-
 __all__ = [
+    # Local tools
     "FetchUrlTool",
     "JsonFormatTool",
+    # Provider tool factories
     "OpenAIWebSearch",
     "OpenAICodeInterpreter",
     "OpenAIImageGeneration",

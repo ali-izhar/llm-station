@@ -32,9 +32,9 @@ class OpenAIConfig:
 class OpenAIProvider(ProviderAdapter):
     """Adapter for OpenAI APIs (Chat Completions and Responses).
 
-    Automatically selects the appropriate API based on model capabilities and tools:
-    - Chat Completions API: Default for standard interactions and built-in search models
-    - Responses API: Required for web search, code interpreter, and image generation tools
+    Automatically selects the appropriate API based on tools:
+    - Chat Completions API: Default for standard interactions
+    - Responses API: Used for web search, code interpreter, and image generation tools
     """
 
     name = "openai"
@@ -413,141 +413,39 @@ class OpenAIProvider(ProviderAdapter):
         config: ModelConfig,
         tools: Optional[List[ToolSpec]] = None,
     ) -> ModelResponse:
-        """Generate a response using OpenAI's Chat Completions or Responses API.
-
-        Automatically selects the appropriate API based on:
-        1. Explicit api parameter in config
-        2. Presence of web search tools (requires Responses API)
-        3. Model capabilities (search models vs regular models)
+        """Generate response using appropriate OpenAI API.
 
         Args:
             messages: Conversation history
-            config: Model configuration with API preferences
-            tools: Optional tools to make available to the model
+            config: Model configuration
+            tools: Optional tools to make available
 
         Returns:
             ModelResponse with content, tool calls, and metadata
         """
-        # Check for OpenAI native tools that require Responses API
-        has_web_search = self._has_web_search_tools(tools)
-        has_code_interpreter = self._has_code_interpreter_tools(tools)
-        has_image_generation = self._has_image_generation_tools(tools)
+        # Use the same logic as get_api_type
+        api_type = self.get_api_type(config, tools)
 
-        # Determine API to use based on configuration and capabilities
-        use_responses = self._should_use_responses_api(
-            config, has_web_search, has_code_interpreter, has_image_generation
-        )
-
-        if use_responses:
+        if api_type == "responses_api":
             return self._generate_responses_api(messages, config, tools)
         else:
             return self._generate_chat_api(messages, config, tools)
 
-    def _has_web_search_tools(self, tools: Optional[List[ToolSpec]]) -> bool:
-        """Check if tools include OpenAI web search tools."""
-        if not tools:
-            return False
-        return any(
-            t.provider == "openai"
-            and t.provider_type in {"web_search", "web_search_preview"}
-            for t in tools
-        )
-
-    def _has_code_interpreter_tools(self, tools: Optional[List[ToolSpec]]) -> bool:
-        """Check if tools include OpenAI Code Interpreter tools."""
-        if not tools:
-            return False
-        return any(
-            t.provider == "openai" and t.provider_type == "code_interpreter"
-            for t in tools
-        )
-
-    def _has_image_generation_tools(self, tools: Optional[List[ToolSpec]]) -> bool:
-        """Check if tools include OpenAI Image Generation tools."""
-        if not tools:
-            return False
-        return any(
-            t.provider == "openai" and t.provider_type == "image_generation"
-            for t in tools
-        )
-
-    def _should_use_responses_api(
-        self,
-        config: ModelConfig,
-        has_web_search: bool,
-        has_code_interpreter: bool,
-        has_image_generation: bool,
-    ) -> bool:
-        """Determine whether to use Responses API or Chat Completions API.
-
-        Logic:
-        1. If config.api is explicitly set, respect it
-        2. If Code Interpreter tools present, MUST use Responses API (only available there)
-        3. If Image Generation tools present, MUST use Responses API (only available there)
-        4. If web search tools present, try Responses API (web search requires it)
-        5. If search model (gpt-4o-search-preview), use Chat Completions
-        6. Otherwise default to Chat Completions for broader compatibility
-        """
-        # Extract OpenAI-specific API preference
-        api_preference = None
-        if config.provider_kwargs:
-            api_preference = config.provider_kwargs.get("api")
-
-        # Explicit API preference always wins
-        if api_preference == "responses":
-            return True
-        if api_preference == "chat":
-            return False
-
-        # Code Interpreter REQUIRES Responses API (not available in Chat Completions)
-        if has_code_interpreter:
-            return True
-
-        # Image Generation REQUIRES Responses API (not available in Chat Completions)
-        if has_image_generation:
-            return True
-
-        # Web search tools require Responses API, except for built-in search models
-        if has_web_search:
-            # Built-in search models handle web search in Chat Completions
-            if self._is_builtin_search_model(config.model):
-                return False
-            # All other models need Responses API for web search
-            return True
-
-        # Default to Chat Completions for maximum compatibility
-        return False
-
     def get_api_type(self, config: ModelConfig, tools: Optional[List[ToolSpec]]) -> str:
-        """Get the API type that will be used for this request (provider-agnostic interface)."""
-        has_web_search = self._has_web_search_tools(tools)
-        has_code_interpreter = self._has_code_interpreter_tools(tools)
-        has_image_generation = self._has_image_generation_tools(tools)
+        """Get the API type that will be used for this request."""
+        needs_responses_api = tools and any(
+            t.provider == "openai"
+            and t.provider_type
+            in {
+                "web_search",
+                "web_search_preview",
+                "code_interpreter",
+                "image_generation",
+            }
+            for t in tools
+        )
 
-        if self._should_use_responses_api(
-            config, has_web_search, has_code_interpreter, has_image_generation
-        ):
-            return "responses_api"
-        else:
-            return "chat_completions"
-
-    def _is_builtin_search_model(self, model: str) -> bool:
-        """Check if model has built-in web search in Chat Completions API."""
-        # Models with native search capabilities (no external tools needed)
-        return model.endswith("-search-preview") or model.endswith("-search")
-
-    def _supports_reasoning(self, model: str) -> bool:
-        """Check if model supports reasoning parameter in Responses API."""
-        # Dynamic detection based on model naming patterns (future-proof)
-        reasoning_patterns = ["gpt-5", "o3", "o4", "deep-research"]
-        return any(pattern in model for pattern in reasoning_patterns)
-
-    def _supports_temperature_responses(self, model: str) -> bool:
-        """Check if model supports temperature parameter in Responses API."""
-        # Dynamic detection: many current models don't support temperature in Responses API
-        # Pattern-based detection instead of hardcoded lists
-        unsupported_patterns = ["gpt-4o"]  # Base pattern
-        return not any(pattern in model for pattern in unsupported_patterns)
+        return "responses_api" if needs_responses_api else "chat_completions"
 
     def _generate_responses_api(
         self,
@@ -579,20 +477,7 @@ class OpenAIProvider(ProviderAdapter):
 
         # Add tools if provided
         if tools:
-            # Filter out web search tools for built-in search models
-            if self._is_builtin_search_model(config.model):
-                filtered_tools = [
-                    t
-                    for t in tools
-                    if not (
-                        t.provider == "openai"
-                        and t.provider_type in {"web_search", "web_search_preview"}
-                    )
-                ]
-                if filtered_tools:
-                    request["tools"] = self.prepare_tools(filtered_tools)
-            else:
-                request["tools"] = self.prepare_tools(tools)
+            request["tools"] = self.prepare_tools(tools)
 
         # Add Responses API specific parameters (model-dependent)
         if openai_config.tool_choice:
@@ -600,14 +485,12 @@ class OpenAIProvider(ProviderAdapter):
         if openai_config.include:
             request["include"] = list(openai_config.include)
 
-        # Reasoning parameter only supported on reasoning models (gpt-5, o3, etc.)
-        if openai_config.reasoning and self._supports_reasoning(config.model):
+        # Add reasoning parameter if provided
+        if openai_config.reasoning:
             request["reasoning"] = dict(openai_config.reasoning)
 
-        # Temperature parameter support varies by model in Responses API
-        if config.temperature is not None and self._supports_temperature_responses(
-            config.model
-        ):
+        # Add temperature parameter
+        if config.temperature is not None:
             request["temperature"] = config.temperature
 
         if config.max_tokens is not None:
@@ -694,22 +577,9 @@ class OpenAIProvider(ProviderAdapter):
         if openai_config.seed is not None:
             request["seed"] = openai_config.seed
 
-        # Add tools (excluding web search for search models - they handle it natively)
+        # Add tools if provided
         if tools:
-            if self._is_builtin_search_model(config.model):
-                # Built-in search models handle web search natively, exclude web search tools
-                filtered_tools = [
-                    t
-                    for t in tools
-                    if not (
-                        t.provider == "openai"
-                        and t.provider_type in {"web_search", "web_search_preview"}
-                    )
-                ]
-                if filtered_tools:
-                    request["tools"] = self.prepare_tools(filtered_tools)
-            else:
-                request["tools"] = self.prepare_tools(tools)
+            request["tools"] = self.prepare_tools(tools)
 
         # JSON response format (basic hint for Chat Completions)
         if config.response_json_schema:

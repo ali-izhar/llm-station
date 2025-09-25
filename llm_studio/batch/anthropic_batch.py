@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
 
-from ..schemas.messages import Message, UserMessage, SystemMessage
+from ..schemas.messages import Message, UserMessage
 from ..schemas.tooling import ToolSpec
 
 
@@ -142,7 +142,7 @@ class AnthropicBatchProcessor:
                 custom_id="research-1",
                 model="claude-opus-4-1-20250805",
                 messages=[UserMessage("Research renewable energy trends")],
-                tools=["anthropic_web_search"],
+                tools=["search"],
                 temperature=0.7
             )
         """
@@ -445,9 +445,9 @@ class AnthropicBatchProcessor:
         Returns:
             AnthropicBatchJob object
         """
-        from ..tools.web_search.anthropic import AnthropicWebSearch
+        from ..tools.registry import get_tool_spec
 
-        search_tool = AnthropicWebSearch(max_uses=3)
+        search_tool_spec = get_tool_spec("search", provider_preference="anthropic")
         requests = []
 
         for i, topic in enumerate(topics):
@@ -461,7 +461,7 @@ class AnthropicBatchProcessor:
                 ],
                 max_tokens=max_tokens,
                 system="You are a research analyst. Provide detailed analysis with citations.",
-                tools=[search_tool.spec()],
+                tools=[search_tool_spec],
                 temperature=0.2,
             )
             requests.append(request)
@@ -601,9 +601,9 @@ def create_code_analysis_batch(
     Returns:
         AnthropicBatchJob object
     """
-    from ..tools.code_execution.anthropic import AnthropicCodeExecution
+    from ..tools.registry import get_tool_spec
 
-    code_tool = AnthropicCodeExecution()
+    code_tool_spec = get_tool_spec("code", provider_preference="anthropic")
     requests = []
 
     for i, code in enumerate(code_samples):
@@ -617,7 +617,7 @@ def create_code_analysis_batch(
             ],
             max_tokens=3072,
             system="You are a code review expert. Analyze code quality, test functionality, and suggest improvements.",
-            tools=[code_tool.spec()],
+            tools=[code_tool_spec],
             temperature=0.1,
         )
         requests.append(request)

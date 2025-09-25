@@ -4,8 +4,8 @@ llm_studio: A modular, provider-agnostic agent framework.
 Key concepts:
 - Normalized message and tool-call schema across providers
 - Pluggable provider adapters (OpenAI, Anthropic/Claude, Google/Gemini)
-- Tool system with JSON-schema validation and execution
-- Agent runtime that loops over model-tool interactions
+- Smart tools system with automatic provider routing
+- Agent runtime with clean tool integration
 
 Note: Provider adapters are implemented with no external dependencies or
 network calls here, providing interfaces and request/response shaping only.
@@ -13,7 +13,12 @@ network calls here, providing interfaces and request/response shaping only.
 
 from .agent.runtime import Agent
 from .models.registry import get_provider, register_provider
-from .tools.registry import get_tool, register_tool
+from .tools.registry import (
+    get_tool_recommendations,
+    get_available_tools,
+    get_tool_info,
+    recommend_tools,
+)
 from .schemas.messages import (
     Message,
     UserMessage,
@@ -53,8 +58,10 @@ __all__ = [
     "Agent",
     "get_provider",
     "register_provider",
-    "get_tool",
-    "register_tool",
+    "get_tool_recommendations",
+    "get_available_tools",
+    "get_tool_info",
+    "recommend_tools",
     "Message",
     "UserMessage",
     "SystemMessage",

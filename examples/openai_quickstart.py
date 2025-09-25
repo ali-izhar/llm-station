@@ -12,7 +12,7 @@ from llm_studio import (
     SystemMessage,
     UserMessage,
 )
-from llm_studio.tools.registry import list_all_tools
+from llm_studio import get_available_tools
 from llm_studio.cli.logging_cli import generate_log_filename
 
 
@@ -49,11 +49,13 @@ def main():
 
     print(f"✅ OpenAI agent created: {agent.provider_name}")
 
-    # Show available tools
-    tools = list_all_tools()
-    openai_tools = [name for name, type_info in tools.items() if "openai" in name]
-    print(f"🔧 Available OpenAI tools: {len(openai_tools)}")
-    for tool in openai_tools:
+    # Show available smart tools
+    tools = get_available_tools()
+    smart_tools = [name for name, type_info in tools.items() if type_info == "smart"]
+    primary_tools = ["search", "code", "image", "json", "fetch", "url"]
+    available_primary = [t for t in primary_tools if t in smart_tools]
+    print(f"🔧 Available smart tools: {len(available_primary)}")
+    for tool in available_primary:
         print(f"   - {tool}")
 
     print(f"\nRunning comprehensive tests...")
@@ -63,25 +65,23 @@ def main():
     response = agent.generate("What is 2 + 2?")
     print(f"Response: {response.content}")
 
-    # Test 2: Web search
+    # Test 2: Web search (using generic "search" tool)
     print(f"\nTest 2: Web Search")
-    response = agent.generate(
-        "What's happening in AI news today?", tools=["openai_web_search"]
-    )
+    response = agent.generate("What's happening in AI news today?", tools=["search"])
     print(f"Response: {response.content[:200]}...")
     if response.grounding_metadata:
         print(f"✓ Search metadata: {list(response.grounding_metadata.keys())}")
 
-    # Test 3: Code execution
+    # Test 3: Code execution (using generic "code" tool)
     print(f"\nTest 3: Code Execution")
     response = agent.generate(
-        "Calculate the factorial of 5 using Python", tools=["openai_code_interpreter"]
+        "Calculate the factorial of 5 using Python", tools=["code"]
     )
     print(f"Response: {response.content[:200]}...")
     if response.grounding_metadata:
         print(f"✓ Code metadata: {list(response.grounding_metadata.keys())}")
 
-    # Test 4: Image generation (try different compatible models)
+    # Test 4: Image generation (using generic "image" tool)
     print(f"\nTest 4: Image Generation")
 
     # Try with different models that support image generation
@@ -98,9 +98,7 @@ def main():
                 system_prompt="You are a helpful assistant.",
             )
 
-            response = image_agent.generate(
-                "Draw a simple red circle", tools=["openai_image_generation"]
-            )
+            response = image_agent.generate("Draw a simple red circle", tools=["image"])
 
             print(f"   Response: {response.content[:150]}...")
 

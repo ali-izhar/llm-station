@@ -24,7 +24,7 @@ class ModelConfig:
     stop: Optional[Union[str, List[str]]] = None
     # Structured output support (JSON Schema). Providers may ignore if unsupported.
     response_json_schema: Optional[Dict[str, Any]] = None
-    # Whether to stream (not implemented yet)
+    # Streaming support
     stream: bool = False
     # Provider-specific parameters (each provider handles its own)
     provider_kwargs: Optional[Dict[str, Any]] = None

@@ -11,7 +11,7 @@ from llm_studio import (
     AnthropicBatchProcessor,
     UserMessage,
 )
-from llm_studio.tools.registry import list_all_tools
+from llm_studio import get_available_tools
 from llm_studio.cli.logging_cli import generate_log_filename
 
 
@@ -49,11 +49,13 @@ def main():
 
     print(f"✅ Anthropic Claude agent created: {agent.provider_name}")
 
-    # Show available Claude tools
-    tools = list_all_tools()
-    claude_tools = [name for name, type_info in tools.items() if "anthropic" in name]
-    print(f"🔧 Available Claude tools: {len(claude_tools)}")
-    for tool in claude_tools:
+    # Show available smart tools
+    tools = get_available_tools()
+    smart_tools = [name for name, type_info in tools.items() if type_info == "smart"]
+    primary_tools = ["search", "code", "image", "json", "fetch", "url"]
+    available_primary = [t for t in primary_tools if t in smart_tools]
+    print(f"🔧 Available smart tools: {len(available_primary)}")
+    for tool in available_primary:
         print(f"   - {tool}")
 
     print(f"\nRunning comprehensive Claude tests...")
@@ -67,7 +69,7 @@ def main():
     print(f"\nTest 2: Web Search with Citations")
     response = agent.generate(
         "What are the latest developments in renewable energy technology?",
-        tools=["anthropic_web_search"],
+        tools=["search"],
     )
     print(f"Response: {response.content[:400]}...")
 
@@ -103,7 +105,7 @@ def main():
     print(f"\nTest 3: Local JSON Tool")
     response = agent.generate(
         "Format this data as JSON: name=Claude, provider=Anthropic, version=4",
-        tools=["json_format"],
+        tools=["json"],
     )
     print(f"Response: {response.content[:200]}...")
 
@@ -135,7 +137,7 @@ def main():
 
         response = agent.generate(
             "Research the latest Python 3.12 features and provide a summary with citations. Focus on new language features.",
-            tools=["anthropic_web_search"],
+            tools=["search"],
         )
 
         print(f"Research workflow response: {response.content[:400]}...")

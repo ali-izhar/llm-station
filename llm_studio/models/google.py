@@ -33,7 +33,7 @@ class GoogleProvider(ProviderAdapter):
             elif (
                 t.provider == "google" and t.provider_type == "google_search_retrieval"
             ):
-                # Legacy search retrieval for Gemini 1.5
+                # Search retrieval with dynamic configuration
                 entry: Dict[str, Any] = {"google_search_retrieval": {}}
                 cfg = t.provider_config or {}
                 if cfg:

@@ -6,63 +6,9 @@ from ...schemas.tooling import ToolSpec
 
 
 class AnthropicWebFetch:
-    """Factory for Anthropic server web fetch tool (Messages API).
+    """Factory for Anthropic web fetch tool.
 
-    Claude's built-in web fetch tool enables direct retrieval and processing of web content.
-    The tool executes server-side and integrates results directly into the response content.
-
-    Key Features:
-    - **Server-Side Execution**: No local processing, Claude handles web requests
-    - **Content Integration**: Fetched content seamlessly integrated into responses
-    - **Domain Control**: Allow/block specific domains for security
-    - **Content Limits**: Control maximum tokens to manage context size
-    - **Usage Limits**: Prevent excessive API usage with max_uses parameter
-    - **Citation Support**: Optional citation extraction from fetched content
-
-    How It Works:
-    1. Provide URLs in your prompt or specify fetch requirements
-    2. Claude automatically fetches and processes the content
-    3. Content is integrated into the response with optional citations
-    4. Tool execution metadata available in response.grounding_metadata
-
-    Args:
-        allowed_domains: List of domains to allow fetching from (security control)
-        blocked_domains: List of domains to block fetching from (security control)
-        citations: Citations configuration for fetched documents (disabled by default)
-        max_content_tokens: Maximum tokens for web page content (prevents context overflow)
-        max_uses: Maximum tool usage per conversation (cost control)
-        cache_control: Cache control configuration for performance
-
-    Usage Examples:
-        # Basic web content fetching
-        tool = AnthropicWebFetch()
-        response = agent.generate(
-            "Fetch and analyze the content from https://example.com/article",
-            tools=[tool.spec()]
-        )
-
-        # Domain-restricted fetching for security
-        secure_fetch = AnthropicWebFetch(
-            allowed_domains=["wikipedia.org", "arxiv.org", "github.com"],
-            max_content_tokens=5000
-        )
-
-        # Content analysis with citations
-        citation_fetch = AnthropicWebFetch(
-            citations={"enabled": True},
-            max_uses=3
-        )
-
-    Response Integration:
-    - Fetched content appears directly in response.content
-    - Tool metadata available in response.grounding_metadata["web_fetch"]
-    - Usage statistics in response.grounding_metadata["usage"]
-
-    Technical Details:
-    - Uses `web_fetch_20250910` server tool version
-    - Execution handled entirely by Anthropic's servers
-    - Content processed and integrated before response delivery
-    - No local tool calls generated (server-side execution)
+    Provides server-side web content retrieval with domain filtering and usage controls.
     """
 
     def __init__(

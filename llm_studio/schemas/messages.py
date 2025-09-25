@@ -72,5 +72,5 @@ class ModelResponse:
     tool_calls: List[ToolCall]
     # Raw provider-specific payload for debugging/analysis if needed
     raw: Optional[Dict[str, Any]] = None
-    # Grounding metadata for search results and citations (Google-specific)
+    # Grounding metadata for search results and citations
     grounding_metadata: Optional[Dict[str, Any]] = None

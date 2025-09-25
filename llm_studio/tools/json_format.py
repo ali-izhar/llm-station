@@ -29,11 +29,11 @@ class JsonFormatTool(Tool):
             content = json_dumps(kwargs.get("data"))
         except TypeError as e:
             return ToolResult(
-                name=self.spec().name,
+                name="json_format",
                 content=f"Serialization error: {e}",
                 tool_call_id=tool_call_id,
                 is_error=True,
             )
         return ToolResult(
-            name=self.spec().name, content=content, tool_call_id=tool_call_id
+            name="json_format", content=content, tool_call_id=tool_call_id
         )

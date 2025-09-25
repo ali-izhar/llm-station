@@ -37,7 +37,7 @@ class FetchUrlTool(Tool):
                 charset = resp.headers.get_content_charset() or "utf-8"
                 body = resp.read().decode(charset, errors="replace")
                 return ToolResult(
-                    name=self.spec().name,
+                    name="fetch_url",
                     content=json_dumps(
                         {
                             "url": url,
@@ -49,7 +49,7 @@ class FetchUrlTool(Tool):
                 )
         except Exception as e:
             return ToolResult(
-                name=self.spec().name,
+                name="fetch_url",
                 content=f"Error fetching {url}: {e}",
                 tool_call_id=tool_call_id,
                 is_error=True,

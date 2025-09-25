@@ -42,16 +42,22 @@ agent = Agent(
 response = agent.generate("What is machine learning?")
 print(response.content)
 
-# Use tools with simple string names
+# Use tools with simple, memorable names
 response = agent.generate(
     "Search for recent AI developments",
-    tools=["openai_web_search"]
+    tools=["search"]  # Auto-routes to best search provider
 )
 
 print(response.content)
 if response.grounding_metadata:
     sources = response.grounding_metadata.get("sources", [])
     print(f"Found {len(sources)} sources")
+
+# Multiple tools work together
+response = agent.generate(
+    "Research AI trends, analyze the data, and create a summary",
+    tools=["search", "code", "json"]
+)
 ```
 
 ## Documentation

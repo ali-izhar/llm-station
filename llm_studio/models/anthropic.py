@@ -494,28 +494,6 @@ class AnthropicProvider(ProviderAdapter):
                 time.sleep(wait_time)
                 self._reset_token_usage_if_needed()
 
-        # Filter out unsupported tools
-        filtered_tools = None
-        if tools:
-            filtered_tools = []
-            for tool in tools:
-                # Skip known problematic tools
-                if tool.provider == "anthropic" and tool.provider_type in [
-                    "web_fetch_20250910",
-                    "web_fetch",
-                ]:
-                    print(
-                        f"⚠ Skipping {tool.name} - not supported in current API version"
-                    )
-                    continue
-                if (
-                    tool.provider == "anthropic"
-                    and tool.provider_type == "code_execution_20250825"
-                ):
-                    print(f"⚠ Skipping {tool.name} - requires beta access")
-                    continue
-                filtered_tools.append(tool)
-
         shaped = self._map_messages(messages)
         request: Dict[str, Any] = {
             "model": config.model,
@@ -527,8 +505,8 @@ class AnthropicProvider(ProviderAdapter):
             request["max_tokens"] = config.max_tokens
         if config.temperature is not None:
             request["temperature"] = config.temperature
-        if filtered_tools:
-            request["tools"] = self.prepare_tools(filtered_tools)
+        if tools:
+            request["tools"] = self.prepare_tools(tools)
         # Handle tool_choice if specified via provider_kwargs
         tool_choice = None
         if config.provider_kwargs:

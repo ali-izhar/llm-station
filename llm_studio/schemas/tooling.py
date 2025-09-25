@@ -18,10 +18,10 @@ class ToolSpec:
     # Optional: whether tool may access network/files, etc. for policy or display
     requires_network: bool = False
     requires_filesystem: bool = False
-    # Provider-native tools (e.g., OpenAI web_search) can set these so adapters
+    # Provider-native tools can set these so adapters
     # pass them through without expecting local execution.
-    provider: Optional[str] = None  # e.g., "openai"
-    provider_type: Optional[str] = None  # e.g., "web_search", "web_search_preview"
+    provider: Optional[str] = None  # e.g., "openai", "google", "anthropic"
+    provider_type: Optional[str] = None  # e.g., "web_search", "code_interpreter"
     provider_config: Optional[Dict[str, Any]] = None  # e.g., filters, user_location
 
 

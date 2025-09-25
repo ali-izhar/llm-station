@@ -10,7 +10,7 @@ from llm_studio import (
     LogLevel,
     GoogleBatchProcessor,
 )
-from llm_studio.tools.registry import list_all_tools
+from llm_studio import get_available_tools
 from llm_studio.cli.logging_cli import generate_log_filename
 
 
@@ -55,11 +55,13 @@ def main():
 
     print(f"✅ Google Gemini agent created: {agent.provider_name}")
 
-    # Show available Google tools
-    tools = list_all_tools()
-    google_tools = [name for name, type_info in tools.items() if "google" in name]
-    print(f"🔧 Available Google tools: {len(google_tools)}")
-    for tool in google_tools:
+    # Show available smart tools
+    tools = get_available_tools()
+    smart_tools = [name for name, type_info in tools.items() if type_info == "smart"]
+    primary_tools = ["search", "code", "image", "json", "fetch", "url"]
+    available_primary = [t for t in primary_tools if t in smart_tools]
+    print(f"🔧 Available smart tools: {len(available_primary)}")
+    for tool in available_primary:
         print(f"   - {tool}")
 
     print(f"\nRunning comprehensive Gemini 2.0 tests...")
@@ -69,10 +71,10 @@ def main():
     response = agent.generate("What is 2 + 2?")
     print(f"Response: {response.content}")
 
-    # Test 2: Web search with grounding (Gemini 2.0+ feature)
+    # Test 2: Web search with grounding (using generic "search" tool)
     print(f"\nTest 2: Web Search with Grounding")
     response = agent.generate(
-        "What are the latest developments in AI this week?", tools=["google_search"]
+        "What are the latest developments in AI this week?", tools=["search"]
     )
     print(f"Response: {response.content[:300]}...")
 
@@ -105,7 +107,7 @@ def main():
         3. Create a simple visualization showing the distribution
         
         Make sure you get all 50 prime numbers and show the code used.""",
-        tools=["google_code_execution"],
+        tools=["code"],
     )
     print(f"Response: {response.content[:600]}...")
 
@@ -141,7 +143,7 @@ def main():
         4. Recent financial highlights
         
         Use web search to find current information and provide a concise report.""",
-        tools=["google_search"],
+        tools=["search"],
     )
 
     print(f"Research Report: {response.content[:500]}...")
@@ -157,7 +159,7 @@ def main():
         """Based on https://ai.google.dev/gemini-api/docs/models, what are the key 
         differences between Gemini 1.5, Gemini 2.0 and Gemini 2.5 models? 
         Create a brief comparison focusing on the main capabilities.""",
-        tools=["google_url_context"],
+        tools=["url"],
     )
     print(f"URL Context Response: {response.content[:400]}...")
 
@@ -180,7 +182,7 @@ def main():
         """Analyze this Gemini documentation: https://ai.google.dev/gemini-api/docs/models
         and then search for recent news about Gemini model updates or improvements.
         Provide a summary combining both sources.""",
-        tools=["google_url_context", "google_search"],
+        tools=["url", "search"],
     )
     print(f"Combined Tools Response: {response.content[:400]}...")
 
@@ -194,7 +196,7 @@ def main():
         response = image_agent.generate(
             """Create a simple, clean image of a robot reading a book in a library. 
             The robot should have a friendly appearance with blue accents.""",
-            tools=["google_image_generation"],
+            tools=["image"],
         )
         print(f"Image Generation Response: {response.content[:300]}...")
 
@@ -223,7 +225,7 @@ def main():
     print(f"\nTest 8: Generic Tool Names")
     response = agent.generate(
         "Search for recent Python programming tutorials",
-        tools=["web_search"],  # Should use Google search by default
+        tools=["search"],  # Will auto-route to Google search for Google agent
     )
     print(f"Generic search response: {response.content[:200]}...")
 

@@ -26,10 +26,11 @@ agent = Agent(
 # Basic chat
 response = agent.generate("What is AI?")
 
-# With tools
-response = agent.generate("Search AI news", tools=["openai_web_search"])
-response = agent.generate("Calculate factorial", tools=["openai_code_interpreter"])
-response = agent.generate("Generate image", tools=["openai_image_generation"])
+# With smart tools - simple, memorable names
+response = agent.generate("Search AI news", tools=["search"])
+response = agent.generate("Calculate factorial", tools=["code"])
+response = agent.generate("Generate image", tools=["image"])
+response = agent.generate("Format as JSON", tools=["json"])
 ```
 
 ## Supported Models & Tools
@@ -40,12 +41,72 @@ response = agent.generate("Generate image", tools=["openai_image_generation"])
 - `gpt-4o-search-preview` - Built-in web search
 - `gpt-5` - Responses API, reasoning capabilities
 
-### Tools
-- `openai_web_search` - Web search with citations (Responses API)
-- `openai_code_interpreter` - Python execution in containers (Responses API)
-- `openai_image_generation` - Image generation/editing (Responses API)
-- `json_format` - Local JSON formatting
-- `fetch_url` - Local URL fetching
+### Available Tools
+- `search` - Web search with citations (uses OpenAI web search)
+- `code` - Code execution in containers (uses OpenAI Code Interpreter) 
+- `image` - Image generation and editing (uses OpenAI image generation)
+- `json` - JSON formatting (local tool)
+- `fetch` - URL fetching (local tool)
+
+### Tool Aliases (Alternative Names)
+- `websearch`, `web_search` → `search`
+- `python`, `execute`, `compute`, `run` → `code`
+- `draw`, `create_image`, `generate_image` → `image`
+- `format_json`, `json_format` → `json`
+- `download` → `fetch`
+
+## Smart Tools System
+
+### Overview
+The smart tools system provides generic, memorable tool names that automatically route to the best available provider. When using an OpenAI agent, smart tools will automatically use OpenAI's implementations.
+
+### Usage Examples
+```python
+# Smart tools automatically use OpenAI implementations
+response = agent.generate("Research AI trends", tools=["search"])
+# → Routes to OpenAI web search via Responses API
+
+response = agent.generate("Calculate statistics", tools=["code"])  
+# → Routes to OpenAI Code Interpreter via Responses API
+
+response = agent.generate("Create artwork", tools=["image"])
+# → Routes to OpenAI image generation via Responses API
+
+# Multiple tools work together
+response = agent.generate(
+    "Research AI news, analyze the data, and create a summary",
+    tools=["search", "code", "json"]
+)
+```
+
+### Advanced Configuration
+```python
+# Provider preference (optional - already using OpenAI)
+response = agent.generate(
+    "Search for information", 
+    tools=[{"name": "search", "provider_preference": "openai"}]
+)
+
+# Multiple smart tools
+response = agent.generate(
+    "Research, analyze, and visualize data",
+    tools=["search", "code", "image", "json"]
+)
+
+# Tool discovery
+from llm_studio import get_available_tools, get_tool_info
+tools = get_available_tools()
+search_info = get_tool_info("search")
+```
+
+### Multiple Tools
+```python
+# Combine tools for complex workflows
+response = agent.generate(
+    "Research the latest AI developments, analyze trends, and create visualizations",
+    tools=["search", "code", "image", "json"]
+)
+```
 
 ## JSON Response Formats
 

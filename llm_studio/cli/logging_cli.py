@@ -160,39 +160,3 @@ def parse_logging_args(args: Optional[list] = None) -> argparse.Namespace:
     """Parse logging-related command line arguments."""
     parser = create_logging_parser()
     return parser.parse_args(args)
-
-
-def demo_cli_logging():
-    """Demo CLI logging interface."""
-    print("Agent Logging CLI Demo")
-    print("=" * 40)
-
-    # Simulate different CLI configurations
-    test_configs = [
-        ["-l"],
-        ["-l", "--log-level", "warn"],
-        ["-l", "--log-level", "debug", "--log-format", "json"],
-        ["-lf", "demo_session.log"],
-        ["-l", "--log-format", "markdown"],
-    ]
-
-    for config in test_configs:
-        print(f"\nTesting config: {' '.join(config)}")
-
-        try:
-            args = parse_logging_args(config)
-            cleanup = configure_logging_from_args(args, "openai", "gpt-4o-mini")
-
-            print(
-                f"Logging configured: level={args.log_level}, format={args.log_format}"
-            )
-
-            if cleanup:
-                cleanup()
-
-        except Exception as e:
-            print(f"Configuration failed: {e}")
-
-
-if __name__ == "__main__":
-    demo_cli_logging()

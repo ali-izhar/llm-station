@@ -126,27 +126,10 @@ class Agent:
                 }
             )
 
-        # Determine API type based on provider (provider-agnostic)
+        # Determine API type based on provider
         api_type = "default"
         if hasattr(self._provider, "get_api_type"):
             api_type = self._provider.get_api_type(config, tools)
-        elif hasattr(self._provider, "_should_use_responses_api"):
-            # Legacy support for OpenAI provider
-            if hasattr(self._provider, "_has_web_search_tools"):
-                has_web_search = self._provider._has_web_search_tools(tools)
-                has_code_interpreter = getattr(
-                    self._provider, "_has_code_interpreter_tools", lambda x: False
-                )(tools)
-                has_image_generation = getattr(
-                    self._provider, "_has_image_generation_tools", lambda x: False
-                )(tools)
-
-                if self._provider._should_use_responses_api(
-                    config, has_web_search, has_code_interpreter, has_image_generation
-                ):
-                    api_type = "responses_api"
-                else:
-                    api_type = "chat_completions"
 
         try:
             # Log provider call start
@@ -220,40 +203,15 @@ class Agent:
             )
             raise
 
-    def _should_force_tool_use(
-        self, prompt: str, tools: Optional[List[ToolSpec]]
-    ) -> bool:
-        """Determine if we should try to force tool usage based on prompt content."""
-        if not tools:
-            return False
-
-        # Check for explicit tool requests in prompt
-        force_keywords = [
-            "use the",
-            "call the",
-            "invoke the",
-            "execute the",
-            "format as json",
-            "format this",
-            "calculate using",
-            "search for",
-            "fetch from",
-            "analyze the",
-        ]
-
-        prompt_lower = prompt.lower()
-        return any(keyword in prompt_lower for keyword in force_keywords)
-
     def generate(
         self,
         prompt: str,
-        tools: Optional[Sequence[Any]] = None,  # names or ToolSpec instances
+        tools: Optional[Sequence[Any]] = None,  # tool names, specs, or config dicts
         structured_schema: Optional[Dict[str, Any]] = None,
-        max_tool_rounds: int = 4,
     ) -> AssistantMessage:
-        """Run a single agent turn with optional tool-calling loop.
+        """Generate response with optional smart tools.
 
-        Returns the final assistant message (with any tool_calls it last produced).
+        Returns the final assistant message with any tool results integrated.
         """
         # Start logging session
         logger = get_logger()
@@ -281,10 +239,8 @@ class Agent:
             if not tools:
                 result = self._generate_simple(prompt, structured_schema)
             else:
-                # Otherwise try the full tool calling flow
-                result = self._generate_with_fallback(
-                    prompt, tools, structured_schema, max_tool_rounds
-                )
+                # Generate with smart tools
+                result = self._generate_with_tools(prompt, tools, structured_schema)
 
             # End logging session
             if logger:
@@ -322,19 +278,18 @@ class Agent:
         except Exception as e:
             return AssistantMessage(content=f"Error: {str(e)}", tool_calls=[])
 
-    def _generate_with_fallback(
+    def _generate_with_tools(
         self,
         prompt: str,
         tools: Optional[Sequence[Any]] = None,
         structured_schema: Optional[Dict[str, Any]] = None,
-        max_tool_rounds: int = 4,
     ) -> AssistantMessage:
-        """Tool calling implementation with fallback handling."""
+        """Tool calling implementation using smart tool routing."""
 
         msgs: List[Message] = [UserMessage(prompt)]
         msgs = self._append_system(msgs)
 
-        # Normalize tool inputs - now supports both local and provider tools by name
+        # Process tool inputs using smart routing
         tool_specs: Optional[List[ToolSpec]] = None
         if tools:
             tool_specs = []
@@ -344,13 +299,50 @@ class Agent:
                     tool_specs.append(t)
                     tool_names.append(t.name)
                 elif isinstance(t, str):
-                    # Use new unified tool spec getter
-                    spec = get_tool_spec(t)
+                    # Get tool spec using smart routing
+                    provider_preference = (
+                        self.provider_name if hasattr(self, "provider_name") else None
+                    )
+                    try:
+                        spec = get_tool_spec(t, provider_preference=provider_preference)
+                        tool_specs.append(spec)
+                        tool_names.append(spec.name)
+                    except KeyError as e:
+                        # Provide helpful error message with smart tool suggestions
+                        primary_tools = [
+                            "search",
+                            "code",
+                            "image",
+                            "json",
+                            "fetch",
+                            "url",
+                        ]
+                        aliases = [
+                            "websearch",
+                            "python",
+                            "draw",
+                            "execute",
+                            "compute",
+                            "run",
+                        ]
+                        suggestions = ", ".join(primary_tools)
+                        raise KeyError(
+                            f"Unknown tool: '{t}'. Available smart tools: {suggestions}. "
+                            f"Aliases: {', '.join(aliases[:4])}..."
+                        ) from e
+                elif isinstance(t, dict):
+                    # Support tool configuration: {"name": "search", "provider_preference": "google"}
+                    tool_name = t.get("name")
+                    if not tool_name:
+                        raise TypeError("Tool dict must have 'name' key")
+
+                    tool_config = {k: v for k, v in t.items() if k != "name"}
+                    spec = get_tool_spec(tool_name, **tool_config)
                     tool_specs.append(spec)
                     tool_names.append(spec.name)
                 else:
                     raise TypeError(
-                        "tools entries must be tool names or ToolSpec instances"
+                        "tools entries must be tool names, ToolSpec instances, or configuration dicts"
                     )
 
             # Log tool selection
@@ -375,7 +367,7 @@ class Agent:
         config_dict["response_json_schema"] = structured_schema
         config = ModelConfig(**config_dict)
 
-        # Simple approach: Try one call, if it works great, if not return basic response
+        # Execute tools with smart routing
         try:
             resp = self._call_provider(messages=msgs, tools=tool_specs, config=config)
             assistant = AssistantMessage(
@@ -384,87 +376,24 @@ class Agent:
                 grounding_metadata=resp.grounding_metadata,
             )
 
-            # If the model made tool calls and we have local tools, try to execute them
-            if resp.tool_calls and tool_specs:
-                local_tool_calls = []
-
-                # Filter for local tools only
+            # Execute any local tools if requested by the model
+            if resp.tool_calls:
                 for call in resp.tool_calls:
                     try:
-                        get_tool(call.name)  # Check if local tool exists
-                        local_tool_calls.append(call)
-                    except KeyError:
-                        continue  # Skip server-side tools
-
-                # If we have local tools to execute, do a single round
-                if local_tool_calls:
-                    try:
-                        # Add assistant message first
-                        msgs.append(assistant)
-
-                        # Execute tools
-                        tool_results = []
-                        for call in local_tool_calls:
-                            try:
-                                result = self._execute_tool(call)
-                                tool_results.append(
-                                    ToolMessage(
-                                        content=result.content,
-                                        tool_call_id=call.id,
-                                        name=call.name,
-                                    )
-                                )
-                            except Exception as e:
-                                tool_results.append(
-                                    ToolMessage(
-                                        content=f"Tool error: {str(e)}",
-                                        tool_call_id=call.id,
-                                        name=call.name,
-                                    )
-                                )
-
-                        # For Anthropic, don't send tool results back - causes tool_use_id mismatch
-                        if config.provider == "anthropic":
-                            # Just return the original response with tool execution appended to content
-                            tool_outputs = []
-                            for result in tool_results:
-                                tool_outputs.append(
-                                    f"[{result.name} output: {result.content}]"
-                                )
-
-                            combined_content = assistant.content
-                            if tool_outputs:
-                                combined_content += "\n\n" + "\n".join(tool_outputs)
-
-                            return AssistantMessage(
-                                content=combined_content,
-                                tool_calls=assistant.tool_calls,
-                                grounding_metadata=assistant.grounding_metadata,
-                            )
-                        else:
-                            # For other providers, send tool results back normally
-                            msgs.extend(tool_results)
-
-                            # Final call with tool results
-                            final_resp = self._call_provider(
-                                messages=msgs, tools=None, config=config
-                            )
-                            return AssistantMessage(
-                                content=final_resp.content,
-                                tool_calls=final_resp.tool_calls,
-                                grounding_metadata=final_resp.grounding_metadata,
-                            )
-
-                    except Exception as e:
-                        # If tool execution fails, return original response
-                        return AssistantMessage(
-                            content=assistant.content
-                            + f"\n[Tool execution error: {str(e)}]",
-                            tool_calls=assistant.tool_calls,
-                            grounding_metadata=assistant.grounding_metadata,
+                        # Try to execute local tool
+                        tool_result = self._execute_tool(call)
+                        # Append tool output to content for simple integration
+                        assistant.content += (
+                            f"\n\n[{call.name} result: {tool_result.content}]"
                         )
+                    except KeyError:
+                        # Tool doesn't exist locally (it's a server-side tool) - skip
+                        continue
+                    except Exception as e:
+                        # Tool execution failed - append error
+                        assistant.content += f"\n\n[{call.name} error: {str(e)}]"
 
-            # Return assistant response (either no tool calls or server-side tools)
+            # Return final response
             return assistant
 
         except Exception as e:
