@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "llm-studio"
+name = "llm-station"
 version = "1.0.0"
-description = "Provider-agnostic agent framework with smart tools for OpenAI, Anthropic, and Google"
+description = "Agent framework with tool calling for OpenAI, Anthropic, and Google"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name="LLM Studio Team", email="team@llmstudio.dev" }]
@@ -43,14 +43,14 @@ dev = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/your-username/llm_studio"
-"Bug Reports" = "https://github.com/your-username/llm_studio/issues"
-"Source" = "https://github.com/your-username/llm_studio"
-"Documentation" = "https://github.com/your-username/llm_studio#readme"
+"Homepage" = "https://github.com/ali-izhar/llm-station"
+"Bug Reports" = "https://github.com/ali-izhar/llm-station/issues"
+"Source" = "https://github.com/ali-izhar/llm-station"
+"Documentation" = "https://github.com/ali-izhar/llm-station#readme"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["llm_studio*"]
+include = ["llm_stack*"]
 exclude = ["examples*"]
 
 [tool.pytest.ini_options]
