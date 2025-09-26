@@ -55,10 +55,10 @@ All notable changes to LLM Studio will be documented in this file.
 
 **Installation:**
 ```bash
-pip install llm-studio[all]  # All providers
-pip install llm-studio[openai]  # OpenAI only
-pip install llm-studio[anthropic]  # Anthropic only
-pip install llm-studio[google]  # Google only
+pip install llm-station[all]  # All providers
+pip install llm-station[openai]  # OpenAI only
+pip install llm-station[anthropic]  # Anthropic only
+pip install llm-station[google]  # Google only
 ```
 
 ### 📚 Documentation

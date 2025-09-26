@@ -7,13 +7,13 @@ A unified, provider-agnostic agent framework for OpenAI, Google Gemini, and Anth
 ### Install
 ```bash
 # Install from PyPI (recommended)
-pip install llm-studio
+pip install llm-station
 
 # Optional: Install with specific provider support
-pip install llm-studio[openai]     # OpenAI only
-pip install llm-studio[anthropic]  # Anthropic only  
-pip install llm-studio[google]     # Google only
-pip install llm-studio[all]        # All providers
+pip install llm-station[openai]     # OpenAI only
+pip install llm-station[anthropic]  # Anthropic only  
+pip install llm-station[google]     # Google only
+pip install llm-station[all]        # All providers
 
 # Development install
 git clone https://github.com/your-repo/llm_studio.git

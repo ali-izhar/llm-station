@@ -73,7 +73,7 @@ def upload_to_test_pypi():
     print("🚀 Uploading to Test PyPI...")
     run_command("python -m twine upload --repository testpypi dist/*")
     print("✅ Uploaded to Test PyPI!")
-    print("🔗 Check at: https://test.pypi.org/project/llm-studio/")
+    print("🔗 Check at: https://test.pypi.org/project/llm-station/")
 
 
 def upload_to_pypi():
@@ -87,7 +87,7 @@ def upload_to_pypi():
 
     run_command("python -m twine upload dist/*")
     print("✅ Uploaded to PyPI!")
-    print("🔗 Check at: https://pypi.org/project/llm-studio/")
+    print("🔗 Check at: https://pypi.org/project/llm-station/")
 
 
 def main():
