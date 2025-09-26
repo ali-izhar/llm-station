@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""OpenAI Quickstart - Get started with OpenAI in LLM Studio"""
+"""OpenAI Quickstart - Get started with OpenAI in LLM Station"""
 
 import os
 from dotenv import load_dotenv
 
-from llm_studio import (
+from llm_station import (
     Agent,
     setup_logging,
     LogLevel,
@@ -12,8 +12,8 @@ from llm_studio import (
     SystemMessage,
     UserMessage,
 )
-from llm_studio import get_available_tools
-from llm_studio.cli.logging_cli import generate_log_filename
+from llm_station import get_available_tools
+from llm_station.cli.logging_cli import generate_log_filename
 
 
 def main():

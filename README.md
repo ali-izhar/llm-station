@@ -1,4 +1,4 @@
-# LLM Studio
+# LLM Station
 
 A unified, provider-agnostic agent framework for OpenAI, Google Gemini, and Anthropic Claude with tool integration.
 
@@ -16,8 +16,8 @@ pip install llm-station[google]     # Google only
 pip install llm-station[all]        # All providers
 
 # Development install
-git clone https://github.com/your-repo/llm_studio.git
-cd llm_studio
+git clone https://github.com/your-repo/llm_station.git
+cd llm_station
 pip install -e .[dev]
 ```
 
@@ -31,7 +31,7 @@ echo "ANTHROPIC_API_KEY=your-anthropic-key" >> .env
 
 ### Use Any Provider
 ```python
-from llm_studio import Agent
+from llm_station import Agent
 from dotenv import load_dotenv
 import os
 

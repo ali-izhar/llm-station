@@ -7,7 +7,7 @@ Tests batch functionality without making actual API calls.
 import pytest
 from unittest.mock import Mock, patch, mock_open
 
-from llm_studio.batch import (
+from llm_station.batch import (
     OpenAIBatchProcessor,
     GoogleBatchProcessor,
     AnthropicBatchProcessor,
@@ -15,7 +15,7 @@ from llm_studio.batch import (
     GoogleBatchTask,
     AnthropicBatchRequest,
 )
-from llm_studio.schemas.messages import UserMessage, SystemMessage
+from llm_station.schemas.messages import UserMessage, SystemMessage
 
 
 class TestOpenAIBatchProcessor:
@@ -173,7 +173,7 @@ class TestBatchToolIntegration:
         with patch.object(processor, "create_batch_job") as mock_create:
             mock_create.return_value = Mock(id="batch_123")
 
-            from llm_studio.batch.anthropic_batch import create_literary_analysis_batch
+            from llm_station.batch.anthropic_batch import create_literary_analysis_batch
 
             texts = ["Text 1", "Text 2"]
             result = create_literary_analysis_batch(texts, processor)

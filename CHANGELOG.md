@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to LLM Studio will be documented in this file.
+All notable changes to LLM Station will be documented in this file.
 
 ## [1.0.0] - 2025-09-25
 
@@ -70,4 +70,4 @@ pip install llm-station[google]  # Google only
 
 ---
 
-**Full Changelog**: This is the initial release of LLM Studio.
+**Full Changelog**: This is the initial release of LLM Station.

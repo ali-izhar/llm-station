@@ -11,7 +11,7 @@ echo "GEMINI_API_KEY=your-key" >> .env
 
 ### 2. Create Agent
 ```python
-from llm_studio import Agent
+from llm_station import Agent
 import os
 
 agent = Agent(
@@ -237,7 +237,7 @@ google_response = google_agent.generate("Research AI", tools=["search"])
 
 ## Batch Processing
 ```python
-from llm_studio import GoogleBatchProcessor
+from llm_station import GoogleBatchProcessor
 
 processor = GoogleBatchProcessor(api_key=api_key)
 tasks = [processor.create_task(key=f"task-{i}", model="gemini-2.5-flash", contents=text) for i, text in enumerate(texts)]

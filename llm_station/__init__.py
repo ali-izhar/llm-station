@@ -1,5 +1,5 @@
 """
-llm_studio: A modular, provider-agnostic agent framework.
+llm_station: A modular, provider-agnostic agent framework.
 
 Key concepts:
 - Normalized message and tool-call schema across providers

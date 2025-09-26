@@ -11,7 +11,7 @@ echo "OPENAI_API_KEY=your-key" >> .env
 
 ### 2. Create Agent
 ```python
-from llm_studio import Agent
+from llm_station import Agent
 import os
 
 agent = Agent(
@@ -94,7 +94,7 @@ response = agent.generate(
 )
 
 # Tool discovery
-from llm_studio import get_available_tools, get_tool_info
+from llm_station import get_available_tools, get_tool_info
 tools = get_available_tools()
 search_info = get_tool_info("search")
 ```

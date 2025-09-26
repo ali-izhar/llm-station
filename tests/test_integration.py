@@ -7,17 +7,17 @@ Tests the full workflow using mocks without API calls.
 import pytest
 from unittest.mock import Mock, patch
 
-from llm_studio import Agent
-from llm_studio.schemas.messages import ModelResponse, ToolCall
-from llm_studio.tools.fetch_url import FetchUrlTool
-from llm_studio.tools.json_format import JsonFormatTool
-from llm_studio.tools.registry import get_tool_spec
+from llm_station import Agent
+from llm_station.schemas.messages import ModelResponse, ToolCall
+from llm_station.tools.fetch_url import FetchUrlTool
+from llm_station.tools.json_format import JsonFormatTool
+from llm_station.tools.registry import get_tool_spec
 
 
 class TestEndToEndWorkflows:
     """Test complete workflows with smart tools."""
 
-    @patch("llm_studio.models.openai.OpenAIProvider.generate")
+    @patch("llm_station.models.openai.OpenAIProvider.generate")
     def test_openai_search_workflow(self, mock_generate):
         """Test complete search workflow with OpenAI."""
         # Mock OpenAI returning search results
@@ -44,7 +44,7 @@ class TestEndToEndWorkflows:
         assert tools[0].provider == "openai"
         assert tools[0].provider_type in ["web_search", "web_search_preview"]
 
-    @patch("llm_studio.models.google.GoogleProvider.generate")
+    @patch("llm_station.models.google.GoogleProvider.generate")
     def test_google_code_workflow(self, mock_generate):
         """Test complete code execution workflow with Google."""
         # Mock Google returning code execution results
@@ -80,7 +80,7 @@ class TestEndToEndWorkflows:
         agent = Agent(provider="mock", model="test")
 
         # Mock provider returning tool call for local tool
-        with patch("llm_studio.models.mock.MockProvider.generate") as mock_generate:
+        with patch("llm_station.models.mock.MockProvider.generate") as mock_generate:
             mock_generate.return_value = ModelResponse(
                 content="I'll format that as JSON",
                 tool_calls=[
@@ -140,7 +140,7 @@ class TestErrorHandlingAndEdgeCases:
 
         assert "No available providers" in str(exc_info.value)
 
-    @patch("llm_studio.models.mock.MockProvider.generate")
+    @patch("llm_station.models.mock.MockProvider.generate")
     def test_provider_error_handling(self, mock_generate):
         """Test handling of provider errors."""
         # Mock provider raising an error
@@ -154,7 +154,7 @@ class TestErrorHandlingAndEdgeCases:
 
     def test_tool_spec_validation(self):
         """Test ToolSpec validation and requirements."""
-        from llm_studio.tools.registry import get_tool_spec
+        from llm_station.tools.registry import get_tool_spec
 
         # Test that required tools exist
         required_tools = ["search", "code", "image", "json"]
@@ -170,7 +170,7 @@ class TestBackwardCompatibility:
 
     def test_toolspec_direct_usage(self):
         """Test that ToolSpec instances still work directly."""
-        from llm_studio.schemas.tooling import ToolSpec
+        from llm_station.schemas.tooling import ToolSpec
 
         agent = Agent(provider="mock", model="test")
 

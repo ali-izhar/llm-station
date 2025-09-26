@@ -7,9 +7,9 @@ Tests the new provider-agnostic tool interface without API calls.
 import pytest
 from unittest.mock import Mock, patch
 
-from llm_studio import Agent, get_available_tools, get_tool_info, recommend_tools
-from llm_studio.tools.registry import get_tool_spec, _get_smart_tool_spec
-from llm_studio.schemas.messages import AssistantMessage, ModelResponse, ToolCall
+from llm_station import Agent, get_available_tools, get_tool_info, recommend_tools
+from llm_station.tools.registry import get_tool_spec, _get_smart_tool_spec
+from llm_station.schemas.messages import AssistantMessage, ModelResponse, ToolCall
 
 
 class TestSmartToolsRegistry:
@@ -173,7 +173,7 @@ class TestProviderSpecificRouting:
 
     def test_openai_agent_routing(self):
         """Test smart tools routing for OpenAI agent."""
-        with patch("llm_studio.models.openai.OpenAIProvider.generate") as mock_generate:
+        with patch("llm_station.models.openai.OpenAIProvider.generate") as mock_generate:
             mock_generate.return_value = ModelResponse(
                 content="Test response", tool_calls=[]
             )
@@ -189,7 +189,7 @@ class TestProviderSpecificRouting:
 
     def test_google_agent_routing(self):
         """Test smart tools routing for Google agent."""
-        with patch("llm_studio.models.google.GoogleProvider.generate") as mock_generate:
+        with patch("llm_station.models.google.GoogleProvider.generate") as mock_generate:
             mock_generate.return_value = ModelResponse(
                 content="Test response", tool_calls=[]
             )
@@ -206,7 +206,7 @@ class TestProviderSpecificRouting:
     def test_anthropic_agent_routing(self):
         """Test smart tools routing for Anthropic agent."""
         with patch(
-            "llm_studio.models.anthropic.AnthropicProvider.generate"
+            "llm_station.models.anthropic.AnthropicProvider.generate"
         ) as mock_generate:
             mock_generate.return_value = ModelResponse(
                 content="Test response", tool_calls=[]
@@ -234,7 +234,7 @@ class TestLocalToolsIntegration:
             mock_execute.return_value = Mock(content='{"test": "result"}')
 
             # Simulate model making a tool call
-            with patch("llm_studio.models.mock.MockProvider.generate") as mock_generate:
+            with patch("llm_station.models.mock.MockProvider.generate") as mock_generate:
                 mock_generate.return_value = ModelResponse(
                     content="Test response",
                     tool_calls=[

@@ -11,7 +11,7 @@ echo "ANTHROPIC_API_KEY=your-key" >> .env
 
 ### 2. Create Agent
 ```python
-from llm_studio import Agent
+from llm_station import Agent
 import os
 
 agent = Agent(
@@ -114,7 +114,7 @@ response = agent.generate(
 )
 
 # Tool discovery
-from llm_studio import get_available_tools, get_tool_info
+from llm_station import get_available_tools, get_tool_info
 tools = get_available_tools()
 search_info = get_tool_info("search")
 ```
@@ -380,7 +380,7 @@ response2 = agent.generate(
 
 ### Domain-Filtered Search
 ```python
-from llm_studio.tools.web_search.anthropic import AnthropicWebSearch
+from llm_station.tools.web_search.anthropic import AnthropicWebSearch
 
 # Academic research search
 academic_search = AnthropicWebSearch(
@@ -396,7 +396,7 @@ response = agent.generate(
 
 ### Secure Content Fetching  
 ```python
-from llm_studio.tools.web_fetch.anthropic import AnthropicWebFetch
+from llm_station.tools.web_fetch.anthropic import AnthropicWebFetch
 
 # Secure fetch with content limits
 secure_fetch = AnthropicWebFetch(
@@ -497,7 +497,7 @@ Anthropic's Message Batches API provides high-throughput, cost-effective process
 ### Basic Batch Processing
 
 ```python
-from llm_studio import AnthropicBatchProcessor
+from llm_station import AnthropicBatchProcessor
 
 processor = AnthropicBatchProcessor(api_key=claude_key)
 
@@ -558,7 +558,7 @@ batch_job = processor.process_content_analysis_batch(
 
 ```python
 # Batch code analysis with execution
-from llm_studio.batch.anthropic_batch import create_code_analysis_batch
+from llm_station.batch.anthropic_batch import create_code_analysis_batch
 
 batch_job = create_code_analysis_batch(
     code_samples=["def fibonacci(n):", "class DataProcessor:", "async function api()"],

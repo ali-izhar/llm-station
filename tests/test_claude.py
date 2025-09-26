@@ -6,14 +6,14 @@ Tests Claude-specific functionality without API calls.
 
 import pytest
 from unittest.mock import patch
-from llm_studio import Agent
-from llm_studio.schemas.messages import ModelResponse
+from llm_station import Agent
+from llm_station.schemas.messages import ModelResponse
 
 
 class TestClaudeSmartTools:
     """Test Claude with smart tools."""
 
-    @patch("llm_studio.models.anthropic.AnthropicProvider.generate")
+    @patch("llm_station.models.anthropic.AnthropicProvider.generate")
     def test_claude_search_routing(self, mock_generate):
         """Test that Claude agent routes search to Anthropic."""
         mock_generate.return_value = ModelResponse(
@@ -36,7 +36,7 @@ class TestClaudeSmartTools:
 
     def test_claude_token_management(self):
         """Test Claude's token management features."""
-        from llm_studio.models.anthropic import AnthropicProvider
+        from llm_station.models.anthropic import AnthropicProvider
 
         provider = AnthropicProvider(api_key="test")
 

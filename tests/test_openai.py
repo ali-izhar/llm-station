@@ -6,14 +6,14 @@ Tests OpenAI-specific functionality without API calls.
 
 import pytest
 from unittest.mock import patch
-from llm_studio import Agent
-from llm_studio.schemas.messages import ModelResponse
+from llm_station import Agent
+from llm_station.schemas.messages import ModelResponse
 
 
 class TestOpenAISmartTools:
     """Test OpenAI with smart tools."""
 
-    @patch("llm_studio.models.openai.OpenAIProvider.generate")
+    @patch("llm_station.models.openai.OpenAIProvider.generate")
     def test_openai_search_routing(self, mock_generate):
         """Test that OpenAI agent routes search to OpenAI."""
         mock_generate.return_value = ModelResponse(
@@ -29,7 +29,7 @@ class TestOpenAISmartTools:
         assert len(tools) == 1
         assert tools[0].provider == "openai"
 
-    @patch("llm_studio.models.openai.OpenAIProvider.generate")
+    @patch("llm_station.models.openai.OpenAIProvider.generate")
     def test_openai_code_routing(self, mock_generate):
         """Test that OpenAI agent routes code to OpenAI."""
         mock_generate.return_value = ModelResponse(
@@ -46,7 +46,7 @@ class TestOpenAISmartTools:
         assert tools[0].provider == "openai"
         assert tools[0].provider_type == "code_interpreter"
 
-    @patch("llm_studio.models.openai.OpenAIProvider.generate")
+    @patch("llm_station.models.openai.OpenAIProvider.generate")
     def test_openai_image_routing(self, mock_generate):
         """Test that OpenAI agent routes image to OpenAI."""
         mock_generate.return_value = ModelResponse(
@@ -65,9 +65,9 @@ class TestOpenAISmartTools:
 
     def test_openai_api_type_detection(self):
         """Test OpenAI API type detection logic."""
-        from llm_studio.models.openai import OpenAIProvider
-        from llm_studio.models.base import ModelConfig
-        from llm_studio.schemas.tooling import ToolSpec
+        from llm_station.models.openai import OpenAIProvider
+        from llm_station.models.base import ModelConfig
+        from llm_station.schemas.tooling import ToolSpec
 
         provider = OpenAIProvider(api_key="test")
         config = ModelConfig(provider="openai", model="gpt-4o-mini")

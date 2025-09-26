@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LLM Studio Tools - Smart Tool Interface
+LLM Station Tools - Smart Tool Interface
 
 This module provides a clean, provider-agnostic tool interface using simple,
 memorable names that automatically route to the best available provider.

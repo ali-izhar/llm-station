@@ -7,21 +7,21 @@ Tests all three providers without making actual API calls.
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from llm_studio import Agent
-from llm_studio.models.openai import OpenAIProvider
-from llm_studio.models.anthropic import AnthropicProvider
-from llm_studio.models.google import GoogleProvider
-from llm_studio.models.mock import MockProvider
-from llm_studio.models.base import ModelConfig
-from llm_studio.schemas.messages import (
+from llm_station import Agent
+from llm_station.models.openai import OpenAIProvider
+from llm_station.models.anthropic import AnthropicProvider
+from llm_station.models.google import GoogleProvider
+from llm_station.models.mock import MockProvider
+from llm_station.models.base import ModelConfig
+from llm_station.schemas.messages import (
     UserMessage,
     SystemMessage,
     ModelResponse,
     ToolCall,
     AssistantMessage,
 )
-from llm_studio.schemas.tooling import ToolSpec
-from llm_studio.tools.registry import get_tool_spec
+from llm_station.schemas.tooling import ToolSpec
+from llm_station.tools.registry import get_tool_spec
 
 
 class TestOpenAIProvider:
@@ -234,7 +234,7 @@ class TestAgentWithSmartTools:
         assert "invalid_tool" in str(exc_info.value)
         assert "Available smart tools:" in str(exc_info.value)
 
-    @patch("llm_studio.models.openai.OpenAIProvider.generate")
+    @patch("llm_station.models.openai.OpenAIProvider.generate")
     def test_provider_receives_correct_tools(self, mock_generate):
         """Test that providers receive correctly routed tools."""
         mock_generate.return_value = ModelResponse(content="Test", tool_calls=[])

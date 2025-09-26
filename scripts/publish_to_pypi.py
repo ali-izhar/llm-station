@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to publish LLM Studio to PyPI.
+Script to publish LLM Station to PyPI.
 Handles building, testing, and uploading the package.
 """
 
@@ -92,7 +92,7 @@ def upload_to_pypi():
 
 def main():
     """Main publishing workflow."""
-    print("🚀 LLM Studio PyPI Publishing Script")
+    print("🚀 LLM Station PyPI Publishing Script")
     print("=" * 40)
 
     # Ensure we're in the right directory

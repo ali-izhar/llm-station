@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Google Gemini Quickstart - Get started with Google Gemini 2.0+ in LLM Studio"""
+"""Google Gemini Quickstart - Get started with Google Gemini 2.0+ in LLM Station"""
 
 import os
 from dotenv import load_dotenv
 
-from llm_studio import (
+from llm_station import (
     Agent,
     setup_logging,
     LogLevel,
     GoogleBatchProcessor,
 )
-from llm_studio import get_available_tools
-from llm_studio.cli.logging_cli import generate_log_filename
+from llm_station import get_available_tools
+from llm_station.cli.logging_cli import generate_log_filename
 
 
 def main():
