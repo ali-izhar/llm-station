@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-station"
-version = "1.0.0"
+version = "1.0.1"
 description = "Agent framework with tool calling for OpenAI, Anthropic, and Google"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -50,7 +50,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["llm_stack*"]
+include = ["llm_station*"]
 exclude = ["examples*"]
 
 [tool.pytest.ini_options]

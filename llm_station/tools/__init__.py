@@ -25,6 +25,7 @@ from .json_format import JsonFormatTool
 from .web_search.openai import OpenAIWebSearch
 from .web_search.anthropic import AnthropicWebSearch
 from .web_search.google import GoogleWebSearch, GoogleSearchRetrieval
+from .web_search.huggingface import HuggingFaceWebSearch
 from .web_fetch.anthropic import AnthropicWebFetch
 from .code_execution.anthropic import AnthropicCodeExecution
 from .code_execution.openai import OpenAICodeInterpreter
@@ -66,6 +67,8 @@ register_provider_tool(
     "google_image_generation", lambda: GoogleImageGeneration().spec()
 )
 
+register_provider_tool("huggingface_web_search", lambda: HuggingFaceWebSearch().spec())
+
 __all__ = [
     # Local tools
     "FetchUrlTool",
@@ -82,4 +85,5 @@ __all__ = [
     "GoogleCodeExecution",
     "GoogleUrlContext",
     "GoogleImageGeneration",
+    "HuggingFaceWebSearch",
 ]

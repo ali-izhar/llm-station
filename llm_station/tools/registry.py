@@ -30,6 +30,12 @@ _SEARCH_TOOLS = [
         "score": 7,
         "desc": "OpenAI web search via Responses API",
     },
+    {
+        "tool": "huggingface_web_search",
+        "provider": "huggingface",
+        "score": 6,
+        "desc": "HuggingFace web search with SerpAPI integration",
+    },
 ]
 
 _CODE_TOOLS = [
