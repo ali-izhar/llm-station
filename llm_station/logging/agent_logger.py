@@ -4,11 +4,18 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TextIO, Callable
 from dataclasses import dataclass, asdict
 from enum import Enum
+
+# Constants
+SEPARATOR_LENGTH = 80
+DICT_STRING_LENGTH_THRESHOLD = 100
+TIMESTAMP_SUBSTRING_LENGTH = 8  # HH:MM:SS format
+ISO_TIMESTAMP_SEPARATOR = "T"  # ISO format separator between date and time
 
 
 class LogLevel(Enum):
@@ -148,7 +155,7 @@ class AgentLogger:
         self._write_field("Query", input_query)
         if tools_requested:
             self._write_field("Tools", ", ".join(tools_requested))
-        self._write("=" * 80, color="blue")
+        self._write("=" * SEPARATOR_LENGTH, color="blue")
 
     def log_step(
         self,
@@ -269,7 +276,7 @@ class AgentLogger:
         if metadata:
             self._write_field("Metadata", str(list(metadata.keys())))
 
-        self._write("=" * 80, color="blue")
+        self._write("=" * SEPARATOR_LENGTH, color="blue")
 
         session = self.current_session
         self.current_session = None
@@ -314,8 +321,6 @@ class AgentLogger:
 
     def _strip_colors(self, text: str) -> str:
         """Remove ANSI color codes."""
-        import re
-
         return re.sub(r"\033\[[0-9;]*m", "", text)
 
     def _format_step(self, entry: LogEntry) -> None:
@@ -325,7 +330,9 @@ class AgentLogger:
             return
 
         icon = self._ICONS.get(entry.action, "📝")
-        timestamp = entry.timestamp.split("T")[1][:8]  # HH:MM:SS
+        timestamp = entry.timestamp.split(ISO_TIMESTAMP_SEPARATOR)[1][
+            :TIMESTAMP_SUBSTRING_LENGTH
+        ]  # HH:MM:SS
         action_title = entry.action.replace("_", " ").title()
 
         self._write(
@@ -338,7 +345,10 @@ class AgentLogger:
         # Debug level shows all details
         if self.level == LogLevel.DEBUG:
             for key, value in entry.details.items():
-                if isinstance(value, dict) and len(str(value)) > 100:
+                if (
+                    isinstance(value, dict)
+                    and len(str(value)) > DICT_STRING_LENGTH_THRESHOLD
+                ):
                     self._write(f"  {key}: {type(value).__name__} ({len(value)} items)")
                 else:
                     self._write(f"  {key}: {value}")

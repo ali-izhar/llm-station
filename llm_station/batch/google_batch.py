@@ -20,6 +20,16 @@ from pathlib import Path
 
 from ..types import Message, ToolSpec
 
+# Constants
+DEFAULT_POLL_INTERVAL_SECONDS = 60
+DEFAULT_PAGE_SIZE = 20
+ERROR_LINE_TRUNCATION_LENGTH = 100
+BATCH_FILE_PREFIX = "google_batch_tasks_"
+EMBEDDINGS_FILE_PREFIX = "embeddings_batch_"
+JSONL_EXTENSION = ".jsonl"
+DEFAULT_ENCODING = "utf-8"
+DEFAULT_MIME_TYPE = "application/json"
+
 
 class GoogleBatchStatus(Enum):
     """Google Batch job status values."""
@@ -240,19 +250,19 @@ class GoogleBatchProcessor:
 
         if not file_path:
             timestamp = int(time.time())
-            file_path = f"google_batch_tasks_{timestamp}.jsonl"
+            file_path = f"{BATCH_FILE_PREFIX}{timestamp}{JSONL_EXTENSION}"
 
         try:
             # Ensure directory exists
             Path(file_path).parent.mkdir(parents=True, exist_ok=True)
 
-            with open(file_path, "w", encoding="utf-8") as file:
+            with open(file_path, "w", encoding=DEFAULT_ENCODING) as file:
                 for i, task in enumerate(tasks):
                     try:
                         # Convert task to API request format
                         request = self._task_to_request(task)
                         file.write(json.dumps(request, ensure_ascii=False) + "\n")
-                    except Exception as e:
+                    except (TypeError, ValueError, KeyError) as e:
                         raise RuntimeError(
                             f"Failed to serialize task {i} (key: {task.key}): {e}"
                         ) from e
@@ -317,7 +327,7 @@ class GoogleBatchProcessor:
         """
         from google.genai.types import UploadFileConfig
 
-        config = UploadFileConfig(mime_type="application/json")
+        config = UploadFileConfig(mime_type=DEFAULT_MIME_TYPE)
         if display_name:
             config.display_name = display_name
 
@@ -374,7 +384,7 @@ class GoogleBatchProcessor:
                 batch_response = self.client.batches.create(
                     model=model, src=src, config=config
                 )
-        except Exception as e:
+        except (AttributeError, KeyError, ValueError, RuntimeError) as e:
             raise RuntimeError(f"Failed to create batch job: {e}") from e
 
         return self._response_to_batch_job(batch_response)
@@ -403,7 +413,9 @@ class GoogleBatchProcessor:
         batch_response = self.client.batches.cancel(name=batch_name)
         return self._response_to_batch_job(batch_response)
 
-    def list_batch_jobs(self, page_size: int = 20) -> List[GoogleBatchJob]:
+    def list_batch_jobs(
+        self, page_size: int = DEFAULT_PAGE_SIZE
+    ) -> List[GoogleBatchJob]:
         """List recent batch jobs.
 
         Args:
@@ -459,11 +471,11 @@ class GoogleBatchProcessor:
             elif isinstance(file_response, bytes):
                 result_content = file_response
             elif isinstance(file_response, str):
-                result_content = file_response.encode("utf-8")
+                result_content = file_response.encode(DEFAULT_ENCODING)
             else:
                 # Try to get bytes from response
                 result_content = bytes(file_response) if file_response else b""
-        except Exception as e:
+        except (AttributeError, KeyError, ValueError, RuntimeError) as e:
             raise RuntimeError(f"Failed to download batch results: {e}") from e
 
         # Save to file if path provided
@@ -472,7 +484,7 @@ class GoogleBatchProcessor:
                 Path(output_file_path).parent.mkdir(parents=True, exist_ok=True)
                 with open(output_file_path, "wb") as file:
                     file.write(result_content)
-            except Exception as e:
+            except (OSError, IOError) as e:
                 raise RuntimeError(
                     f"Failed to save results to {output_file_path}: {e}"
                 ) from e
@@ -484,7 +496,7 @@ class GoogleBatchProcessor:
             if isinstance(result_content, str):
                 result_text = result_content
             else:
-                result_text = result_content.decode("utf-8")
+                result_text = result_content.decode(DEFAULT_ENCODING)
 
             # Handle empty results
             if not result_text or not result_text.strip():
@@ -503,19 +515,20 @@ class GoogleBatchProcessor:
                         )
                     except json.JSONDecodeError as e:
                         raise RuntimeError(
-                            f"Failed to parse result line {line_num}: {e}. Line content: {line[:100]}"
+                            f"Failed to parse result line {line_num}: {e}. "
+                            f"Line content: {line[:ERROR_LINE_TRUNCATION_LENGTH]}"
                         ) from e
         except (UnicodeDecodeError, AttributeError) as e:
             raise RuntimeError(f"Failed to decode batch results file: {e}") from e
 
-        # Check for failures (best practice: batch APIs may succeed even if items fail)
-        failed_count = sum(1 for r in results if r.error is not None)
-        # Note: Don't raise on failures - caller can check result.error for each item
-
+        # Note: Caller can check result.error for each item to handle failures
         return results
 
     def wait_for_completion(
-        self, batch_name: str, poll_interval: int = 60, timeout: Optional[int] = None
+        self,
+        batch_name: str,
+        poll_interval: int = DEFAULT_POLL_INTERVAL_SECONDS,
+        timeout: Optional[int] = None,
     ) -> GoogleBatchJob:
         """Wait for batch job completion with polling.
 
@@ -814,7 +827,7 @@ class GoogleBatchProcessor:
         batch_name: str,
         output_file_path: Optional[str] = None,
         wait: bool = True,
-        poll_interval: int = 60,
+        poll_interval: int = DEFAULT_POLL_INTERVAL_SECONDS,
     ) -> List[GoogleBatchResult]:
         """Get results from a batch job, waiting for completion if needed.
 
@@ -836,7 +849,8 @@ class GoogleBatchProcessor:
             batch_job = self.get_batch_status(batch_name)
             if batch_job.state != GoogleBatchStatus.JOB_STATE_SUCCEEDED:
                 raise RuntimeError(
-                    f"Batch job not completed. Status: {batch_job.state.value}"
+                    f"Batch job not completed. Status: {batch_job.state.value}. "
+                    f"Use wait_for_completion() or check status first."
                 )
 
         return self.download_results(batch_job, output_file_path)
@@ -871,9 +885,9 @@ class GoogleBatchProcessor:
 
         # Create and upload file
         timestamp = int(time.time())
-        file_path = f"embeddings_batch_{timestamp}.jsonl"
+        file_path = f"{EMBEDDINGS_FILE_PREFIX}{timestamp}{JSONL_EXTENSION}"
 
-        with open(file_path, "w") as f:
+        with open(file_path, "w", encoding=DEFAULT_ENCODING) as f:
             for task in tasks:
                 f.write(json.dumps(task) + "\n")
 

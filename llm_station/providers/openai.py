@@ -38,6 +38,14 @@ class OpenAIProvider(Provider):
 
     name = "openai"
 
+    # OpenAI server-side tool types
+    SERVER_TOOL_TYPES = {
+        "web_search",
+        "web_search_preview",
+        "code_interpreter",
+        "image_generation",
+    }
+
     def supports_tools(self) -> bool:
         return True
 
@@ -459,27 +467,13 @@ class OpenAIProvider(Provider):
 
         # Check if we have server-side tools (Responses API)
         has_server_tools = any(
-            t.provider == "openai"
-            and t.provider_type
-            in {
-                "web_search",
-                "web_search_preview",
-                "code_interpreter",
-                "image_generation",
-            }
+            t.provider == "openai" and t.provider_type in self.SERVER_TOOL_TYPES
             for t in tools
         )
 
         # Check if we have local tools (function tools)
         has_local_tools = any(
-            t.provider != "openai"
-            or t.provider_type
-            not in {
-                "web_search",
-                "web_search_preview",
-                "code_interpreter",
-                "image_generation",
-            }
+            t.provider != "openai" or t.provider_type not in self.SERVER_TOOL_TYPES
             for t in tools
         )
 
@@ -524,14 +518,7 @@ class OpenAIProvider(Provider):
             server_tools = [
                 t
                 for t in tools
-                if t.provider == "openai"
-                and t.provider_type
-                in {
-                    "web_search",
-                    "web_search_preview",
-                    "code_interpreter",
-                    "image_generation",
-                }
+                if t.provider == "openai" and t.provider_type in self.SERVER_TOOL_TYPES
             ]
             if server_tools:
                 request["tools"] = self.prepare_tools(server_tools)
@@ -579,12 +566,12 @@ class OpenAIProvider(Provider):
             )
         except AttributeError:
             return ModelResponse(
-                content=f"OpenAI Responses API not available in current SDK version. "
-                f"Upgrade OpenAI SDK or use Chat Completions API instead.",
+                content="OpenAI Responses API not available in current SDK version. "
+                "Upgrade OpenAI SDK or use Chat Completions API instead.",
                 tool_calls=[],
                 raw={"error": "responses_api_not_available"},
             )
-        except Exception as e:
+        except (KeyError, ValueError) as e:
             return ModelResponse(
                 content=f"OpenAI Responses API error: {str(e)}",
                 tool_calls=[],
@@ -642,14 +629,7 @@ class OpenAIProvider(Provider):
                 t
                 for t in tools
                 if not (
-                    t.provider == "openai"
-                    and t.provider_type
-                    in {
-                        "web_search",
-                        "web_search_preview",
-                        "code_interpreter",
-                        "image_generation",
-                    }
+                    t.provider == "openai" and t.provider_type in self.SERVER_TOOL_TYPES
                 )
             ]
             if function_tools:
@@ -671,5 +651,5 @@ class OpenAIProvider(Provider):
             raise RuntimeError(
                 "OpenAI SDK not installed. Install with: pip install openai"
             )
-        except Exception as e:
+        except (ImportError, AttributeError, KeyError, ValueError) as e:
             raise RuntimeError(f"OpenAI Chat Completions API call failed: {str(e)}")

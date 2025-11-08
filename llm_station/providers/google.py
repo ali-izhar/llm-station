@@ -15,8 +15,37 @@ class GoogleProvider(Provider):
 
     name = "google"
 
+    # Google server-side tool types
+    SERVER_TOOL_TYPES = {
+        "google_search",
+        "code_execution",
+        "url_context",
+        "image_generation",
+    }
+
     def supports_tools(self) -> bool:
         return True
+
+    def _process_server_tool(self, tool_type: str) -> Optional[Dict[str, Any]]:
+        """Process a server-side tool and return its tool dict representation.
+
+        Args:
+            tool_type: The type of server tool (google_search, code_execution, url_context)
+
+        Returns:
+            Tool dict or None if tool_type is image_generation (handled separately)
+        """
+        if tool_type == "google_search":
+            return {"google_search": {}}
+        elif tool_type == "code_execution":
+            return {"code_execution": {}}
+        elif tool_type == "url_context":
+            return {"url_context": {}}
+        elif tool_type == "image_generation":
+            # Image generation is built into Gemini 2.5 models - no explicit tool needed
+            # Just ensure response_modalities include 'Image'
+            return None  # Handled in generation config
+        return None
 
     def prepare_tools(self, tools: List[ToolSpec]) -> List[Any]:
         """Convert normalized ToolSpec to Google SDK Tool objects."""
@@ -27,60 +56,33 @@ class GoogleProvider(Provider):
 
         # Check if we have server tools (google_search, code_execution, etc.)
         has_server_tools = any(
-            t.provider == "google"
-            and t.provider_type
-            in {
-                "google_search",
-                "code_execution",
-                "url_context",
-                "image_generation",
-            }
+            t.provider == "google" and t.provider_type in self.SERVER_TOOL_TYPES
             for t in tools
         )
 
         # Check if we have local tools
         has_local_tools = any(
-            not (
-                t.provider == "google"
-                and t.provider_type
-                in {
-                    "google_search",
-                    "code_execution",
-                    "url_context",
-                    "image_generation",
-                }
-            )
+            t.provider != "google" or t.provider_type not in self.SERVER_TOOL_TYPES
             for t in tools
         )
 
         # Google doesn't support mixing server tools with function tools
         # If we have both, only include server tools
         if has_server_tools and has_local_tools:
-            # Only process server tools
+            # Only process server tools (exclude image_generation as it's handled separately)
             for t in tools:
-                if t.provider == "google" and t.provider_type == "google_search":
-                    tool_list.append({"google_search": {}})
-                elif t.provider == "google" and t.provider_type == "code_execution":
-                    tool_list.append({"code_execution": {}})
-                elif t.provider == "google" and t.provider_type == "url_context":
-                    tool_list.append({"url_context": {}})
+                if t.provider == "google" and t.provider_type in self.SERVER_TOOL_TYPES:
+                    tool_dict = self._process_server_tool(t.provider_type)
+                    if tool_dict:
+                        tool_list.append(tool_dict)
             return tool_list
 
         # Normal processing when not mixing
         for t in tools:
-            if t.provider == "google" and t.provider_type == "google_search":
-                # Gemini 2.0+ search tool - no configuration needed
-                tool_list.append({"google_search": {}})
-            elif t.provider == "google" and t.provider_type == "code_execution":
-                # Code execution tool
-                tool_list.append({"code_execution": {}})
-            elif t.provider == "google" and t.provider_type == "url_context":
-                # URL context tool
-                tool_list.append({"url_context": {}})
-            elif t.provider == "google" and t.provider_type == "image_generation":
-                # Image generation is built into Gemini 2.5 models - no explicit tool needed
-                # Just ensure response_modalities include 'Image'
-                pass  # Handled in generation config
+            if t.provider == "google" and t.provider_type in self.SERVER_TOOL_TYPES:
+                tool_dict = self._process_server_tool(t.provider_type)
+                if tool_dict:
+                    tool_list.append(tool_dict)
             else:
                 # Local function tools - remove additionalProperties for Google API
                 # Also ensure type is a single string, not an array
@@ -135,11 +137,19 @@ class GoogleProvider(Provider):
         tool_calls: List[ToolCall] = []
 
         # Parse different content parts (text, code execution, function calls, images)
+        # Optimized: Single pass through parts to extract content and metadata
         parts = (cand.get("content") or {}).get("parts") or []
         text_parts = []
         code_parts = []
         image_parts = []
 
+        # Enhanced metadata extraction for Gemini 2.0+
+        grounding_metadata = {}
+        code_execution_data = []
+        inline_media_data = []
+        image_generation_data = []
+
+        # Single pass through parts to extract both content and metadata
         for p in parts:
             # Regular text content
             if "text" in p:
@@ -157,112 +167,86 @@ class GoogleProvider(Provider):
                 )
 
             # Code execution parts (executable_code and code_execution_result)
-            elif "executable_code" in p:
-                exec_code = p.get("executable_code", {})
-                code = exec_code.get("code", "")
-                language = exec_code.get("language", "python")
-                if code:
-                    code_parts.append(f"```{language}\n{code}\n```")
-            elif "code_execution_result" in p:
-                exec_result = p.get("code_execution_result", {})
-                output = exec_result.get("output", "")
-                outcome = exec_result.get("outcome", "")
-                if output:
-                    code_parts.append(f"**Execution Output:**\n```\n{output}\n```")
-                if outcome and outcome != "OK":
-                    code_parts.append(f"**Execution Status:** {outcome}")
-
-            # Handle inline_data (images, graphs generated by code)
-            elif "inline_data" in p:
-                inline_data = p.get("inline_data", {})
-                mime_type = inline_data.get("mime_type", "")
-                if mime_type and "image" in mime_type:
-                    code_parts.append(f"**Generated Image** ({mime_type})")
-                elif mime_type:
-                    code_parts.append(f"**Generated Media** ({mime_type})")
-
-            # Handle image parts (native image generation)
-            elif "image" in p or (hasattr(p, "as_image") and callable(p.as_image)):
-                # Gemini 2.5 native image generation
-                image_parts.append("**Generated Image**")
-                # Note: Actual image data available via response.parts in SDK
-            elif "blob" in p and p.get("blob", {}).get("mime_type", "").startswith(
-                "image/"
-            ):
-                # Alternative image format
-                mime_type = p["blob"]["mime_type"]
-                image_parts.append(f"**Generated Image** ({mime_type})")
-
-        # Combine all content parts
-        all_parts = text_parts + code_parts + image_parts
-        content = "\n".join(part for part in all_parts if part.strip())
-
-        # Enhanced metadata extraction for Gemini 2.0+
-        grounding_metadata = {}
-
-        # Extract code execution metadata from response parts
-        code_execution_data = []
-        inline_media_data = []
-
-        for p in parts:
-            # Collect code execution information
-            if "executable_code" in p or hasattr(p, "executable_code"):
+            elif "executable_code" in p or hasattr(p, "executable_code"):
                 exec_code = (
                     p.get("executable_code")
                     if "executable_code" in p
                     else p.executable_code
                 )
                 if exec_code:
+                    # Extract for content display
+                    code = (
+                        exec_code.get("code")
+                        if isinstance(exec_code, dict)
+                        else getattr(exec_code, "code", "")
+                    )
+                    language = (
+                        exec_code.get("language", "python")
+                        if isinstance(exec_code, dict)
+                        else getattr(exec_code, "language", "python")
+                    )
+                    if code:
+                        code_parts.append(f"```{language}\n{code}\n```")
+
+                    # Extract for metadata
                     code_info = {
-                        "code": (
-                            exec_code.get("code")
-                            if isinstance(exec_code, dict)
-                            else getattr(exec_code, "code", "")
-                        ),
-                        "language": (
-                            exec_code.get("language", "python")
-                            if isinstance(exec_code, dict)
-                            else getattr(exec_code, "language", "python")
-                        ),
+                        "code": code,
+                        "language": language,
                     }
                     code_execution_data.append(code_info)
 
-            # Collect execution results
-            if "code_execution_result" in p or hasattr(p, "code_execution_result"):
+            elif "code_execution_result" in p or hasattr(p, "code_execution_result"):
                 exec_result = (
                     p.get("code_execution_result")
                     if "code_execution_result" in p
                     else p.code_execution_result
                 )
                 if exec_result:
+                    output = (
+                        exec_result.get("output")
+                        if isinstance(exec_result, dict)
+                        else getattr(exec_result, "output", "")
+                    )
+                    outcome = (
+                        exec_result.get("outcome", "OK")
+                        if isinstance(exec_result, dict)
+                        else getattr(exec_result, "outcome", "OK")
+                    )
+                    # Extract for content display
+                    if output:
+                        code_parts.append(f"**Execution Output:**\n```\n{output}\n```")
+                    if outcome and outcome != "OK":
+                        code_parts.append(f"**Execution Status:** {outcome}")
+
+                    # Extract for metadata
                     result_info = {
-                        "output": (
-                            exec_result.get("output")
-                            if isinstance(exec_result, dict)
-                            else getattr(exec_result, "output", "")
-                        ),
-                        "outcome": (
-                            exec_result.get("outcome", "OK")
-                            if isinstance(exec_result, dict)
-                            else getattr(exec_result, "outcome", "OK")
-                        ),
+                        "output": output,
+                        "outcome": outcome,
                     }
                     # Attach to the last code execution entry
                     if code_execution_data:
                         code_execution_data[-1]["result"] = result_info
 
-            # Collect inline media (images, graphs)
-            if "inline_data" in p or hasattr(p, "inline_data"):
+            # Handle inline_data (images, graphs generated by code)
+            elif "inline_data" in p or hasattr(p, "inline_data"):
                 inline_data = (
                     p.get("inline_data") if "inline_data" in p else p.inline_data
                 )
                 if inline_data:
+                    mime_type = (
+                        inline_data.get("mime_type")
+                        if isinstance(inline_data, dict)
+                        else getattr(inline_data, "mime_type", "")
+                    )
+                    # Extract for content display
+                    if mime_type and "image" in mime_type:
+                        code_parts.append(f"**Generated Image** ({mime_type})")
+                    elif mime_type:
+                        code_parts.append(f"**Generated Media** ({mime_type})")
+
+                    # Extract for metadata
                     media_info = {
-                        "mime_type": (
-                            inline_data.get("mime_type")
-                            if isinstance(inline_data, dict)
-                            else getattr(inline_data, "mime_type", "")
-                        ),
+                        "mime_type": mime_type,
                         "data": (
                             inline_data.get("data")
                             if isinstance(inline_data, dict)
@@ -276,28 +260,38 @@ class GoogleProvider(Provider):
                     }
                     inline_media_data.append(media_info)
 
-        # Extract image generation metadata
-        image_generation_data = []
-        for p in parts:
-            if "image" in p or (hasattr(p, "as_image") and callable(p.as_image)):
-                # Image generation detected
+            # Handle image parts (native image generation)
+            elif "image" in p or (hasattr(p, "as_image") and callable(p.as_image)):
+                # Gemini 2.5 native image generation
+                image_parts.append("**Generated Image**")
+                # Note: Actual image data available via response.parts in SDK
+                # Extract for metadata
                 image_info = {
                     "type": "native_generation",
                     "available": True,
                     "format": "PIL_Image",  # Available via response.parts[].as_image()
                 }
                 image_generation_data.append(image_info)
+
             elif "blob" in p and p.get("blob", {}).get("mime_type", "").startswith(
                 "image/"
             ):
+                # Alternative image format
                 blob = p["blob"]
+                mime_type = blob.get("mime_type", "")
+                image_parts.append(f"**Generated Image** ({mime_type})")
+                # Extract for metadata
                 image_info = {
                     "type": "blob_image",
-                    "mime_type": blob.get("mime_type", ""),
+                    "mime_type": mime_type,
                     "size": len(blob.get("data", "")),
                     "available": True,
                 }
                 image_generation_data.append(image_info)
+
+        # Combine all content parts
+        all_parts = text_parts + code_parts + image_parts
+        content = "\n".join(part for part in all_parts if part.strip())
 
         # Add metadata if present
         if code_execution_data:
@@ -474,5 +468,5 @@ class GoogleProvider(Provider):
             raise RuntimeError(
                 "Google GenAI SDK not installed. Install with: pip install -U google-genai"
             )
-        except Exception as e:
+        except (ImportError, AttributeError, KeyError, ValueError) as e:
             raise RuntimeError(f"Google Gemini API call failed: {str(e)}")

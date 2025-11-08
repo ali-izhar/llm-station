@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import json
 import gzip
+import zlib
+import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import urlparse
 
 from ..types import ToolResult, ToolSpec
 from . import Tool
+
+# Constants
+DEFAULT_TIMEOUT_SECONDS = 10
+MIN_TIMEOUT_SECONDS = 0.1
+MAX_TIMEOUT_SECONDS = 300
+MAX_CONTENT_LENGTH = 20000
 
 
 def json_dumps(obj: Any) -> str:
@@ -29,7 +38,7 @@ class FetchUrlTool(Tool):
                     "url": {"type": "string", "description": "The absolute URL"},
                     "timeout": {
                         "type": "number",
-                        "description": "Timeout in seconds (default 10)",
+                        "description": f"Timeout in seconds (default {DEFAULT_TIMEOUT_SECONDS}, min {MIN_TIMEOUT_SECONDS}, max {MAX_TIMEOUT_SECONDS})",
                     },
                 },
                 "required": ["url"],
@@ -37,10 +46,78 @@ class FetchUrlTool(Tool):
             requires_network=True,
         )
 
+    def _validate_url(self, url: str) -> None:
+        """Validate URL scheme and structure.
+
+        Args:
+            url: URL to validate
+
+        Raises:
+            ValueError: If URL is invalid or uses a dangerous protocol
+        """
+        try:
+            parsed = urlparse(url)
+            allowed_schemes = {"http", "https"}
+            if parsed.scheme not in allowed_schemes:
+                raise ValueError(
+                    f"Invalid URL scheme '{parsed.scheme}'. Only http and https are allowed."
+                )
+            if not parsed.netloc:
+                raise ValueError(f"Invalid URL: missing network location")
+        except ValueError:
+            raise  # Re-raise ValueError as-is
+        except (AttributeError, TypeError) as e:
+            raise ValueError(f"Invalid URL format: {str(e)}") from e
+
+    def _validate_timeout(self, timeout: float) -> float:
+        """Validate and normalize timeout value.
+
+        Args:
+            timeout: Timeout value in seconds
+
+        Returns:
+            Validated timeout value
+
+        Raises:
+            ValueError: If timeout is out of valid range
+        """
+        if timeout < MIN_TIMEOUT_SECONDS:
+            raise ValueError(
+                f"timeout must be at least {MIN_TIMEOUT_SECONDS} seconds, got: {timeout}"
+            )
+        if timeout > MAX_TIMEOUT_SECONDS:
+            raise ValueError(
+                f"timeout must be at most {MAX_TIMEOUT_SECONDS} seconds, got: {timeout}"
+            )
+        return timeout
+
     def run(self, *, tool_call_id: str, **kwargs: Any) -> ToolResult:
         self.validate_args(kwargs)
         url = kwargs.get("url")
-        timeout = float(kwargs.get("timeout", 10))
+
+        # Validate URL
+        try:
+            self._validate_url(url)
+        except ValueError as e:
+            return ToolResult(
+                name="fetch_url",
+                content=f"Invalid URL: {str(e)}",
+                tool_call_id=tool_call_id,
+                is_error=True,
+            )
+
+        # Validate and normalize timeout
+        try:
+            timeout = float(kwargs.get("timeout", DEFAULT_TIMEOUT_SECONDS))
+            timeout = self._validate_timeout(timeout)
+        except (ValueError, TypeError) as e:
+            return ToolResult(
+                name="fetch_url",
+                content=f"Invalid timeout: {str(e)}",
+                tool_call_id=tool_call_id,
+                is_error=True,
+            )
+
         try:
             req = urllib.request.Request(url)
             req.add_header("Accept-Encoding", "gzip, deflate")
@@ -56,8 +133,6 @@ class FetchUrlTool(Tool):
                 if content_encoding == "gzip":
                     body_bytes = gzip.decompress(body_bytes)
                 elif content_encoding == "deflate":
-                    import zlib
-
                     body_bytes = zlib.decompress(body_bytes)
 
                 body = body_bytes.decode(charset, errors="replace")
@@ -68,15 +143,44 @@ class FetchUrlTool(Tool):
                         {
                             "url": url,
                             "status": resp.status,
-                            "content": body[:20000],  # cap to protect prompt budget
+                            "content": body[:MAX_CONTENT_LENGTH],
                         }
                     ),
                     tool_call_id=tool_call_id,
                 )
-        except Exception as e:
+        except urllib.error.URLError as e:
             return ToolResult(
                 name="fetch_url",
-                content=f"Error fetching {url}: {e}",
+                content=f"URL error fetching {url}: {e.reason if hasattr(e, 'reason') else str(e)}",
+                tool_call_id=tool_call_id,
+                is_error=True,
+            )
+        except urllib.error.HTTPError as e:
+            return ToolResult(
+                name="fetch_url",
+                content=f"HTTP error {e.code} fetching {url}: {e.reason}",
+                tool_call_id=tool_call_id,
+                is_error=True,
+            )
+        except TimeoutError:
+            return ToolResult(
+                name="fetch_url",
+                content=f"Timeout fetching {url} after {timeout} seconds",
+                tool_call_id=tool_call_id,
+                is_error=True,
+            )
+        except ValueError as e:
+            return ToolResult(
+                name="fetch_url",
+                content=f"Invalid response from {url}: {str(e)}",
+                tool_call_id=tool_call_id,
+                is_error=True,
+            )
+        except (OSError, IOError, MemoryError) as e:
+            # Catch system-level errors that might occur during URL fetching
+            return ToolResult(
+                name="fetch_url",
+                content=f"System error fetching {url}: {type(e).__name__}: {str(e)}",
                 tool_call_id=tool_call_id,
                 is_error=True,
             )

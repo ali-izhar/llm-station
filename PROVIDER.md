@@ -1,6 +1,6 @@
 # Provider Documentation
 
-Complete documentation for all supported LLM providers in LLM Station.
+All supported LLM providers in LLM Station.
 
 ## Table of Contents
 
@@ -230,9 +230,10 @@ response = image_agent.generate("Generate image", tools=["image"])
 - `websearch`, `web_search` → `search`
 - `python`, `execute`, `compute`, `run` → `code`
 - `draw`, `create_image`, `generate_image` → `image`
-- `webpage`, `url_context` → `url`
 - `format_json`, `json_format` → `json`
 - `download` → `fetch`
+
+**Note:** The `url` tool is a separate smart tool (not an alias) that routes to Google's URL context tool when using Google provider, or falls back to local `fetch` tool for other providers.
 
 ### Smart Tools System
 
@@ -657,5 +658,35 @@ claude_agent = Agent(provider="anthropic", model="claude-sonnet-4", api_key=clau
 openai_response = openai_agent.generate("Research AI", tools=["search"])
 google_response = google_agent.generate("Research AI", tools=["search"])
 claude_response = claude_agent.generate("Research AI", tools=["search"])
+```
+
+## Testing
+
+### Quick Verification
+
+Test your setup without making real API calls:
+
+```python
+from llm_station import Agent
+
+# Mock provider for testing (no API key needed)
+agent = Agent(provider="mock", model="test")
+response = agent.generate("Hello!", tools=["search", "code"])
+print(response.content)  # Works without API calls
+```
+
+### Run Tests
+
+```bash
+# Run all tests
+pytest tests/
+
+# Run provider-specific tests
+pytest tests/test_openai.py -v
+pytest tests/test_google.py -v
+pytest tests/test_claude.py -v
+
+# Run without integration tests (no API calls)
+pytest tests/ -m "not integration"
 ```
 

@@ -18,6 +18,13 @@ from enum import Enum
 
 from ..types import Message, UserMessage, ToolSpec
 
+# Constants
+DEFAULT_POLL_INTERVAL_SECONDS = 300  # 5 minutes (Anthropic recommends longer intervals)
+DEFAULT_LIST_LIMIT = 20
+SECONDS_PER_HOUR = 60 * 60
+HOURS_PER_DAY = 24
+DEFAULT_TIMEOUT_SECONDS = HOURS_PER_DAY * SECONDS_PER_HOUR  # 24 hours
+
 
 class AnthropicBatchStatus(Enum):
     """Anthropic Message Batch processing status values."""
@@ -232,7 +239,7 @@ class AnthropicBatchProcessor:
                     params["metadata"] = req.metadata
 
                 api_requests.append({"custom_id": req.custom_id, "params": params})
-            except Exception as e:
+            except (AttributeError, KeyError, ValueError, TypeError) as e:
                 raise RuntimeError(
                     f"Failed to convert request {i} (custom_id: {req.custom_id}): {e}"
                 ) from e
@@ -240,7 +247,7 @@ class AnthropicBatchProcessor:
         # Create batch
         try:
             batch_response = self.client.messages.batches.create(requests=api_requests)
-        except Exception as e:
+        except (AttributeError, KeyError, ValueError, RuntimeError) as e:
             raise RuntimeError(f"Failed to create batch job: {e}") from e
 
         return self._response_to_batch_job(batch_response)
@@ -298,7 +305,9 @@ class AnthropicBatchProcessor:
         batch_response = self.client.messages.batches.cancel(batch_id)
         return self._response_to_batch_job(batch_response)
 
-    def list_batch_jobs(self, limit: int = 20) -> List[AnthropicBatchJob]:
+    def list_batch_jobs(
+        self, limit: int = DEFAULT_LIST_LIMIT
+    ) -> List[AnthropicBatchJob]:
         """List recent batch jobs.
 
         Args:
@@ -361,30 +370,22 @@ class AnthropicBatchProcessor:
                         )
 
                     results.append(batch_result)
-                except Exception as e:
+                except (AttributeError, KeyError, ValueError, TypeError) as e:
                     raise RuntimeError(
                         f"Failed to parse result for custom_id {result.custom_id}: {e}"
                     ) from e
-        except Exception as e:
+        except (AttributeError, KeyError, ValueError, RuntimeError) as e:
             raise RuntimeError(f"Failed to download batch results: {e}") from e
 
         # Check for failures (best practice: batch APIs may succeed even if items fail)
-        failed_count = sum(
-            1
-            for r in results
-            if r.result_type
-            in [
-                AnthropicBatchResultType.ERRORED,
-                AnthropicBatchResultType.CANCELED,
-                AnthropicBatchResultType.EXPIRED,
-            ]
-        )
-        # Note: Don't raise on failures - caller can check result.result_type and result.error
-
+        # Note: Caller can check result.result_type and result.error for each item
         return results
 
     def wait_for_completion(
-        self, batch_id: str, poll_interval: int = 300, timeout: Optional[int] = None
+        self,
+        batch_id: str,
+        poll_interval: int = DEFAULT_POLL_INTERVAL_SECONDS,
+        timeout: Optional[int] = None,
     ) -> AnthropicBatchJob:
         """Wait for batch job completion with polling.
 
@@ -401,7 +402,7 @@ class AnthropicBatchProcessor:
             RuntimeError: If batch job fails
         """
         if timeout is None:
-            timeout = 24 * 60 * 60  # 24 hours default
+            timeout = DEFAULT_TIMEOUT_SECONDS
 
         start_time = time.time()
 
@@ -580,7 +581,7 @@ class AnthropicBatchProcessor:
     def submit_and_wait(
         self,
         requests: List[AnthropicBatchRequest],
-        poll_interval: int = 300,
+        poll_interval: int = DEFAULT_POLL_INTERVAL_SECONDS,
         timeout: Optional[int] = None,
     ) -> List[AnthropicBatchResult]:
         """Complete workflow: submit batch and wait for results.
@@ -595,11 +596,11 @@ class AnthropicBatchProcessor:
         """
         # Submit batch
         batch_job = self.create_batch_job(requests)
-        print(f"Batch submitted: {batch_job.id}")
+        # Note: Status can be checked via batch_job.id
 
         # Wait for completion
         completed_job = self.wait_for_completion(batch_job.id, poll_interval, timeout)
-        print(f"Batch completed: {completed_job.processing_status.value}")
+        # Note: Completion status available via completed_job.processing_status
 
         # Download results
         return self.download_results(completed_job)

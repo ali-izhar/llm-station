@@ -108,7 +108,7 @@ class AnthropicCode:
             requires_filesystem=True,
             provider="anthropic",
             provider_type="code_execution_20250825",
-            provider_config=provider_config or None,
+            provider_config=provider_config if provider_config else None,
         )
 
 

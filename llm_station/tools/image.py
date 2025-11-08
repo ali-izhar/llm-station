@@ -116,7 +116,7 @@ class OpenAIImage:
             requires_filesystem=False,
             provider="openai",
             provider_type="image_generation",
-            provider_config=provider_config or None,
+            provider_config=provider_config if provider_config else None,
         )
 
 

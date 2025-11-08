@@ -18,6 +18,9 @@ from .types import (
     UserMessage,
 )
 
+# Constants
+PRIMARY_TOOLS = ["search", "code", "image", "json", "fetch", "url"]
+
 
 class Agent:
     """Agent for interacting with LLM providers with tool support."""
@@ -51,10 +54,19 @@ class Agent:
             tool = get_tool(call.name)
             result = tool.run(tool_call_id=call.id, **(call.arguments or {}))
             return result
-        except Exception as e:
+        except KeyError as e:
+            # Tool not found - return error result
             return ToolResult(
                 name=call.name,
-                content=f"Error: {str(e)}",
+                content=f"Tool '{call.name}' not found: {str(e)}",
+                tool_call_id=call.id,
+                is_error=True,
+            )
+        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
+            # Tool execution errors - return error result
+            return ToolResult(
+                name=call.name,
+                content=f"Tool execution error: {str(e)}",
                 tool_call_id=call.id,
                 is_error=True,
             )
@@ -113,8 +125,11 @@ class Agent:
                 tool_calls=resp.tool_calls,
                 grounding_metadata=resp.grounding_metadata,
             )
+        except (RuntimeError, ValueError, KeyError, AttributeError) as e:
+            return AssistantMessage(content=f"Provider error: {str(e)}", tool_calls=[])
         except Exception as e:
-            return AssistantMessage(content=f"Error: {str(e)}", tool_calls=[])
+            # Fallback for unexpected exceptions
+            return AssistantMessage(content=f"Provider error: {str(e)}", tool_calls=[])
 
     def _generate_with_tools(
         self,
@@ -140,10 +155,9 @@ class Agent:
                         spec = get_spec(t, provider_preference=provider_preference)
                         tool_specs.append(spec)
                     except KeyError as e:
-                        primary_tools = ["search", "code", "image", "json", "fetch"]
-                        suggestions = ", ".join(primary_tools)
+                        suggestions = ", ".join(PRIMARY_TOOLS)
                         raise KeyError(
-                            f"Unknown tool: '{t}'. Available tools: {suggestions}"
+                            f"Unknown tool: '{t}'. Available smart tools: {suggestions}"
                         ) from e
                 elif isinstance(t, dict):
                     # Support tool configuration: {"name": "search", "provider_preference": "google"}
@@ -186,10 +200,13 @@ class Agent:
                     except KeyError:
                         # Tool doesn't exist locally (it's a server-side tool) - skip
                         continue
-                    except Exception as e:
+                    except (ValueError, TypeError, AttributeError, RuntimeError) as e:
                         assistant.content += f"\n\n[{call.name} error: {str(e)}]"
 
             return assistant
 
+        except (RuntimeError, ValueError, KeyError, AttributeError) as e:
+            return AssistantMessage(content=f"Provider error: {str(e)}", tool_calls=[])
         except Exception as e:
+            # Fallback for unexpected exceptions
             return AssistantMessage(content=f"Provider error: {str(e)}", tool_calls=[])

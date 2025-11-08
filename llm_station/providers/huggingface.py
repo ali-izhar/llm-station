@@ -5,6 +5,7 @@ import os
 import requests
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from ..provider import Provider
 from ..types import Message, ModelConfig, ModelResponse, ToolCall, ToolSpec
@@ -29,6 +30,13 @@ class HuggingFaceProvider(Provider):
     """
 
     name = "huggingface"
+
+    # Default configuration constants
+    DEFAULT_MAX_URL_LENGTH = 5000
+    DEFAULT_REQUEST_TIMEOUT_SECONDS = 60
+    DEFAULT_URL_EXTRACTION_TIMEOUT_SECONDS = 10
+    DEFAULT_MAX_URLS = 3
+    DEFAULT_NUM_SEARCH_RESULTS = 5
 
     def __init__(
         self,
@@ -102,9 +110,11 @@ class HuggingFaceProvider(Provider):
         return mapped
 
     def _perform_web_search(
-        self, query: str, num_results: int = 5
+        self, query: str, num_results: int = None
     ) -> List[Dict[str, Any]]:
         """Perform web search using SerpAPI."""
+        if num_results is None:
+            num_results = self.DEFAULT_NUM_SEARCH_RESULTS
         if not self.serpapi_key:
             raise ValueError(
                 "SerpAPI key not configured. Set serpapi_key or SERPAPI_API_KEY environment variable"
@@ -118,19 +128,48 @@ class HuggingFaceProvider(Provider):
             search = GoogleSearch(params)
             results = search.get_dict()
             return results.get("organic_results", [])
-        except ImportError:
+        except (ImportError, AttributeError) as e:
             raise ImportError(
                 "SerpAPI package not installed. Install with: pip install google-search-results"
             )
-        except Exception as e:
+        except (KeyError, ValueError, RuntimeError) as e:
             raise RuntimeError(f"Web search failed: {str(e)}")
 
-    def _extract_text_from_url(self, url: str, max_length: int = 5000) -> str:
-        """Extract clean text content from a URL."""
+    def _extract_text_from_url(self, url: str, max_length: int = None) -> str:
+        """Extract clean text content from a URL.
+
+        Args:
+            url: URL to extract text from
+            max_length: Maximum length of extracted text
+
+        Returns:
+            Extracted text content or error message
+
+        Raises:
+            ValueError: If URL is invalid or uses a dangerous protocol
+        """
+        if max_length is None:
+            max_length = self.DEFAULT_MAX_URL_LENGTH
+
+        # Validate URL scheme to prevent dangerous protocols
+        try:
+            parsed = urlparse(url)
+            allowed_schemes = {"http", "https"}
+            if parsed.scheme not in allowed_schemes:
+                raise ValueError(
+                    f"Invalid URL scheme '{parsed.scheme}'. Only http and https are allowed."
+                )
+            if not parsed.netloc:
+                raise ValueError(f"Invalid URL: missing network location")
+        except ValueError as e:
+            return f"Error: Invalid URL '{url}': {str(e)}"
+        except (AttributeError, TypeError) as e:
+            return f"Error: Invalid URL format '{url}': {str(e)}"
+
         try:
             response = requests.get(
                 url,
-                timeout=10,
+                timeout=self.DEFAULT_URL_EXTRACTION_TIMEOUT_SECONDS,
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 },
@@ -185,16 +224,18 @@ class HuggingFaceProvider(Provider):
                 else response.text
             )
 
-        except Exception as e:
+        except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
             return f"Error extracting text from {url}: {str(e)}"
 
     def _format_search_context(
         self,
         search_results: List[Dict[str, Any]],
         extract_full_text: bool = True,
-        max_urls: int = 3,
+        max_urls: int = None,
     ) -> str:
         """Format search results into context string for the LLM."""
+        if max_urls is None:
+            max_urls = self.DEFAULT_MAX_URLS
         if not search_results:
             return ""
 
@@ -219,7 +260,9 @@ class HuggingFaceProvider(Provider):
                 context_parts.append("\n=== Search Result Summaries ===\n")
 
         # Add search result summaries (title + snippet)
-        for i, result in enumerate(search_results[:5], 1):
+        for i, result in enumerate(
+            search_results[: self.DEFAULT_NUM_SEARCH_RESULTS], 1
+        ):
             title = result.get("title", "No title")
             snippet = result.get("snippet", "No snippet")
             link = result.get("link", "")
@@ -253,14 +296,16 @@ class HuggingFaceProvider(Provider):
         if use_web_search and user_query:
             try:
                 search_results = self._perform_web_search(
-                    user_query, num_results=hf_config.num_search_results or 5
+                    user_query,
+                    num_results=hf_config.num_search_results
+                    or self.DEFAULT_NUM_SEARCH_RESULTS,
                 )
 
                 if search_results:
                     search_context = self._format_search_context(
                         search_results,
                         extract_full_text=hf_config.extract_full_text or True,
-                        max_urls=hf_config.max_urls or 3,
+                        max_urls=hf_config.max_urls or self.DEFAULT_MAX_URLS,
                     )
 
                     # Extract sources for metadata
@@ -270,9 +315,9 @@ class HuggingFaceProvider(Provider):
                             "url": result.get("link", ""),
                             "snippet": result.get("snippet", ""),
                         }
-                        for result in search_results[:5]
+                        for result in search_results[: self.DEFAULT_NUM_SEARCH_RESULTS]
                     ]
-            except Exception as e:
+            except (RuntimeError, ValueError, KeyError) as e:
                 # If web search fails, continue without it
                 search_context = f"Note: Web search failed: {str(e)}"
 
@@ -356,7 +401,12 @@ class HuggingFaceProvider(Provider):
         payload = self._build_payload(messages, config)
 
         try:
-            response = requests.post(api_url, headers=headers, json=payload, timeout=60)
+            response = requests.post(
+                api_url,
+                headers=headers,
+                json=payload,
+                timeout=self.DEFAULT_REQUEST_TIMEOUT_SECONDS,
+            )
             response.raise_for_status()
             result = response.json()
 

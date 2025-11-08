@@ -7,6 +7,9 @@ from typing import Any, Dict, List, Optional
 
 from ..types import ToolSpec
 
+# Constants
+MAX_ALLOWED_DOMAINS = 20
+
 
 class OpenAISearch:
     """OpenAI web search tool with citations via Responses API."""
@@ -28,9 +31,9 @@ class OpenAISearch:
 
     def _validate_domains(self, domains: List[str]) -> List[str]:
         """Validate and normalize domain list."""
-        if len(domains) > 20:
+        if len(domains) > MAX_ALLOWED_DOMAINS:
             raise ValueError(
-                f"allowed_domains can contain at most 20 domains, got {len(domains)}"
+                f"allowed_domains can contain at most {MAX_ALLOWED_DOMAINS} domains, got {len(domains)}"
             )
 
         normalized_domains = []
@@ -108,7 +111,7 @@ class OpenAISearch:
             requires_network=True,
             provider="openai",
             provider_type="web_search_preview" if self.preview else "web_search",
-            provider_config=provider_config or None,
+            provider_config=provider_config if provider_config else None,
         )
 
 
@@ -165,7 +168,7 @@ class AnthropicSearch:
             requires_network=True,
             provider="anthropic",
             provider_type="web_search_20250305",
-            provider_config=cfg or None,
+            provider_config=cfg if cfg else None,
         )
 
 

@@ -19,6 +19,14 @@ from pathlib import Path
 
 from ..types import Message, UserMessage, SystemMessage, ToolSpec
 
+# Constants
+DEFAULT_POLL_INTERVAL_SECONDS = 60
+DEFAULT_LIST_LIMIT = 20
+ERROR_LINE_TRUNCATION_LENGTH = 100
+BATCH_FILE_PREFIX = "batch_tasks_"
+JSONL_EXTENSION = ".jsonl"
+DEFAULT_ENCODING = "utf-8"
+
 
 class BatchStatus(Enum):
     """Batch job status values."""
@@ -226,19 +234,19 @@ class OpenAIBatchProcessor:
 
         if not file_path:
             timestamp = int(time.time())
-            file_path = f"batch_tasks_{timestamp}.jsonl"
+            file_path = f"{BATCH_FILE_PREFIX}{timestamp}{JSONL_EXTENSION}"
 
         try:
             # Ensure directory exists
             Path(file_path).parent.mkdir(parents=True, exist_ok=True)
 
-            with open(file_path, "w", encoding="utf-8") as file:
+            with open(file_path, "w", encoding=DEFAULT_ENCODING) as file:
                 for i, task in enumerate(tasks):
                     try:
                         # Convert task to API request format
                         request = self._task_to_request(task)
                         file.write(json.dumps(request, ensure_ascii=False) + "\n")
-                    except Exception as e:
+                    except (TypeError, ValueError, KeyError) as e:
                         raise RuntimeError(
                             f"Failed to serialize task {i} (custom_id: {task.custom_id}): {e}"
                         ) from e
@@ -346,7 +354,7 @@ class OpenAIBatchProcessor:
                 completion_window=completion_window.value,
                 metadata=metadata,
             )
-        except Exception as e:
+        except (AttributeError, KeyError, ValueError) as e:
             raise RuntimeError(
                 f"Failed to create batch job for file {input_file_id}: {e}"
             ) from e
@@ -377,7 +385,7 @@ class OpenAIBatchProcessor:
         batch_response = self.client.batches.cancel(batch_id)
         return self._response_to_batch_job(batch_response)
 
-    def list_batch_jobs(self, limit: int = 20) -> List[BatchJob]:
+    def list_batch_jobs(self, limit: int = DEFAULT_LIST_LIMIT) -> List[BatchJob]:
         """List recent batch jobs.
 
         Args:
@@ -419,7 +427,7 @@ class OpenAIBatchProcessor:
         try:
             # Download results
             result_content = self.client.files.content(batch_job.output_file_id).content
-        except Exception as e:
+        except (AttributeError, KeyError, ValueError) as e:
             raise RuntimeError(f"Failed to download batch results: {e}") from e
 
         # Save to file if path provided
@@ -428,7 +436,7 @@ class OpenAIBatchProcessor:
                 Path(output_file_path).parent.mkdir(parents=True, exist_ok=True)
                 with open(output_file_path, "wb") as file:
                     file.write(result_content)
-            except Exception as e:
+            except (OSError, IOError) as e:
                 raise RuntimeError(
                     f"Failed to save results to {output_file_path}: {e}"
                 ) from e
@@ -436,7 +444,12 @@ class OpenAIBatchProcessor:
         # Parse results with error handling
         results = []
         try:
-            result_text = result_content.decode("utf-8")
+            result_text = result_content.decode(DEFAULT_ENCODING)
+
+            # Handle empty results
+            if not result_text or not result_text.strip():
+                return results  # Return empty list if no results
+
             for line_num, line in enumerate(result_text.strip().split("\n"), 1):
                 if line.strip():
                     try:
@@ -451,19 +464,14 @@ class OpenAIBatchProcessor:
                             )
                         )
                     except json.JSONDecodeError as e:
-                        # Log but continue parsing other results
                         raise RuntimeError(
-                            f"Failed to parse result line {line_num}: {e}. Line content: {line[:100]}"
+                            f"Failed to parse result line {line_num}: {e}. "
+                            f"Line content: {line[:ERROR_LINE_TRUNCATION_LENGTH]}"
                         ) from e
         except UnicodeDecodeError as e:
             raise RuntimeError(f"Failed to decode batch results file: {e}") from e
 
-        # Check for failures in results (best practice: batch APIs may succeed even if items fail)
-        failed_count = sum(1 for r in results if r.error is not None)
-        if failed_count > 0:
-            # Don't raise, but this is important information
-            pass  # Caller can check result.error for each item
-
+        # Note: Caller can check result.error for each item to handle failures
         return results
 
     def download_errors(
@@ -492,15 +500,21 @@ class OpenAIBatchProcessor:
 
         # Parse errors
         errors = []
-        error_text = error_content.decode("utf-8")
-        for line in error_text.strip().split("\n"):
-            if line.strip():
-                errors.append(json.loads(line.strip()))
+        try:
+            error_text = error_content.decode(DEFAULT_ENCODING)
+            for line in error_text.strip().split("\n"):
+                if line.strip():
+                    errors.append(json.loads(line.strip()))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise RuntimeError(f"Failed to parse error file: {e}") from e
 
         return errors
 
     def wait_for_completion(
-        self, batch_id: str, poll_interval: int = 60, timeout: Optional[int] = None
+        self,
+        batch_id: str,
+        poll_interval: int = DEFAULT_POLL_INTERVAL_SECONDS,
+        timeout: Optional[int] = None,
     ) -> BatchJob:
         """Wait for batch job completion with polling.
 
@@ -694,7 +708,7 @@ class OpenAIBatchProcessor:
         batch_id: str,
         output_file_path: Optional[str] = None,
         wait: bool = True,
-        poll_interval: int = 60,
+        poll_interval: int = DEFAULT_POLL_INTERVAL_SECONDS,
     ) -> List[BatchResult]:
         """Get results from a batch job, waiting for completion if needed.
 
@@ -716,7 +730,8 @@ class OpenAIBatchProcessor:
             batch_job = self.get_batch_status(batch_id)
             if batch_job.status != BatchStatus.COMPLETED:
                 raise RuntimeError(
-                    f"Batch job not completed. Status: {batch_job.status.value}"
+                    f"Batch job not completed. Status: {batch_job.status.value}. "
+                    f"Use wait_for_completion() or check status first."
                 )
 
         return self.download_results(batch_job, output_file_path)

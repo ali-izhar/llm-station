@@ -45,7 +45,7 @@ class MockProvider(Provider):
                 name = m.group(1)
                 try:
                     args = json.loads(m.group(2))
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     args = {"_raw": m.group(2)}
                 tool_calls.append(ToolCall(id="tc_1", name=name, arguments=args))
 

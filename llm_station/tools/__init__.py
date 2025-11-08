@@ -25,6 +25,10 @@ _SMART_TOOLS: Dict[str, list] = {
         {"tool": "google_image_generation", "provider": "google", "score": 8},
     ],
     "fetch": [{"tool": "fetch_url", "provider": "local", "score": 6}],
+    "url": [
+        {"tool": "google_url_context", "provider": "google", "score": 9},
+        {"tool": "fetch_url", "provider": "local", "score": 6},
+    ],
     "json": [{"tool": "json_format", "provider": "local", "score": 7}],
 }
 
@@ -102,7 +106,8 @@ def get_spec(name: str, provider_preference: Optional[str] = None) -> ToolSpec:
     resolved_name = _TOOL_ALIASES.get(name, name)
 
     if resolved_name not in _SMART_TOOLS:
-        raise KeyError(f"Unknown tool: {name}")
+        available_tools = ", ".join(sorted(_SMART_TOOLS.keys()))
+        raise KeyError(f"Unknown tool: {name}. Available: {available_tools}")
 
     tool_options = _SMART_TOOLS[resolved_name]
 
@@ -152,20 +157,40 @@ from .local import FetchUrlTool, JsonFormatTool
 register("fetch_url", FetchUrlTool)
 register("json_format", JsonFormatTool)
 
-# Register provider tools
-register_provider_tool("openai_web_search", OpenAISearch().spec())
-register_provider_tool("openai_web_search_preview", OpenAISearch(preview=True).spec())
-register_provider_tool("openai_code_interpreter", OpenAICode().spec())
-register_provider_tool("openai_image_generation", OpenAIImage().spec())
+# Register provider tools - data-driven approach
+_PROVIDER_TOOL_REGISTRATIONS = [
+    # OpenAI tools
+    ("openai_web_search", OpenAISearch, {}),
+    ("openai_web_search_preview", OpenAISearch, {"preview": True}),
+    ("openai_code_interpreter", OpenAICode, {}),
+    ("openai_image_generation", OpenAIImage, {}),
+    # Anthropic tools
+    ("anthropic_web_search", AnthropicSearch, {}),
+    ("anthropic_code_execution", AnthropicCode, {}),
+    # Google tools
+    ("google_search", GoogleSearch, {}),
+    ("google_code_execution", GoogleCode, {}),
+    ("google_image_generation", GoogleImage, {}),
+    # HuggingFace tools
+    ("huggingface_web_search", HuggingFaceSearch, {}),
+]
 
-register_provider_tool("anthropic_web_search", AnthropicSearch().spec())
-register_provider_tool("anthropic_code_execution", AnthropicCode().spec())
+# Register Google URL context as a server-side tool spec
+from ..types import ToolSpec
 
-register_provider_tool("google_search", GoogleSearch().spec())
-register_provider_tool("google_code_execution", GoogleCode().spec())
-register_provider_tool("google_image_generation", GoogleImage().spec())
+register_provider_tool(
+    "google_url_context",
+    ToolSpec(
+        name="google_url_context",
+        description="Google Gemini URL context tool for processing URLs",
+        input_schema={},
+        provider="google",
+        provider_type="url_context",
+    ),
+)
 
-register_provider_tool("huggingface_web_search", HuggingFaceSearch().spec())
+for tool_name, tool_class, init_kwargs in _PROVIDER_TOOL_REGISTRATIONS:
+    register_provider_tool(tool_name, tool_class(**init_kwargs).spec())
 
 __all__ = [
     # Base class and registry
