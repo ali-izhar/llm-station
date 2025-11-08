@@ -15,7 +15,7 @@ from llm_station.batch import (
     GoogleBatchTask,
     AnthropicBatchRequest,
 )
-from llm_station.schemas.messages import UserMessage, SystemMessage
+from llm_station import UserMessage
 
 
 class TestOpenAIBatchProcessor:

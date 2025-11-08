@@ -6,14 +6,13 @@ Tests Google-specific functionality without API calls.
 
 import pytest
 from unittest.mock import patch
-from llm_station import Agent
-from llm_station.schemas.messages import ModelResponse
+from llm_station import Agent, ModelResponse
 
 
 class TestGoogleSmartTools:
     """Test Google with smart tools."""
 
-    @patch("llm_station.models.google.GoogleProvider.generate")
+    @patch("llm_station.providers.google.GoogleProvider.generate")
     def test_google_search_routing(self, mock_generate):
         """Test that Google agent routes search to Google."""
         mock_generate.return_value = ModelResponse(
@@ -29,7 +28,7 @@ class TestGoogleSmartTools:
         assert len(tools) == 1
         assert tools[0].provider == "google"
 
-    @patch("llm_station.models.google.GoogleProvider.generate")
+    @patch("llm_station.providers.google.GoogleProvider.generate")
     def test_google_code_routing(self, mock_generate):
         """Test that Google agent routes code to Google."""
         mock_generate.return_value = ModelResponse(
@@ -46,7 +45,7 @@ class TestGoogleSmartTools:
         assert tools[0].provider == "google"
         assert tools[0].provider_type == "code_execution"
 
-    @patch("llm_station.models.google.GoogleProvider.generate")
+    @patch("llm_station.providers.google.GoogleProvider.generate")
     def test_google_url_routing(self, mock_generate):
         """Test that Google agent routes URL context to Google."""
         mock_generate.return_value = ModelResponse(
@@ -65,8 +64,8 @@ class TestGoogleSmartTools:
 
     def test_google_tool_preparation(self):
         """Test Google tool preparation logic."""
-        from llm_station.models.google import GoogleProvider
-        from llm_station.schemas.tooling import ToolSpec
+        from llm_station.providers.google import GoogleProvider
+        from llm_station import ToolSpec
 
         provider = GoogleProvider(api_key="test")
 

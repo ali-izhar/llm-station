@@ -1,31 +1,38 @@
 #!/usr/bin/env python3
-"""Agent Logging System"""
+"""Agent Logging System - Clean, Pythonic Implementation"""
 
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TextIO
+from typing import Any, Dict, List, Optional, TextIO, Callable
 from dataclasses import dataclass, asdict
 from enum import Enum
 
+# Constants
+SEPARATOR_LENGTH = 80
+DICT_STRING_LENGTH_THRESHOLD = 100
+TIMESTAMP_SUBSTRING_LENGTH = 8  # HH:MM:SS format
+ISO_TIMESTAMP_SEPARATOR = "T"  # ISO format separator between date and time
+
 
 class LogLevel(Enum):
-    """Standard logging levels following industry conventions."""
+    """Standard logging levels."""
 
-    ERROR = "error"  # Only errors and critical issues
-    WARN = "warn"  # Warnings and errors
-    INFO = "info"  # General information (default)
-    DEBUG = "debug"  # Detailed debugging information
+    ERROR = "error"
+    WARN = "warn"
+    INFO = "info"
+    DEBUG = "debug"
 
 
 class LogFormat(Enum):
     """Log output formats."""
 
-    CONSOLE = "console"  # Human-readable console output
-    JSON = "json"  # Structured JSON logs
-    MARKDOWN = "markdown"  # Markdown format for documentation
+    CONSOLE = "console"
+    JSON = "json"
+    MARKDOWN = "markdown"
 
 
 @dataclass
@@ -72,6 +79,27 @@ class AgentSessionLog:
 class AgentLogger:
     """Comprehensive agent interaction logger."""
 
+    # Formatting constants
+    _ICONS = {
+        "tool_selection": "🔧",
+        "tool_execution": "⚙️",
+        "provider_api_call": "🌐",
+        "provider_tool_execution": "🛠️",
+        "response_parsing": "📖",
+        "error_handling": "❌",
+    }
+
+    _COLORS = {
+        "blue": "\033[94m",
+        "green": "\033[92m",
+        "yellow": "\033[93m",
+        "red": "\033[91m",
+        "purple": "\033[95m",
+        "cyan": "\033[96m",
+        "bold": "\033[1m",
+        "end": "\033[0m",
+    }
+
     def __init__(
         self,
         level: LogLevel = LogLevel.INFO,
@@ -85,23 +113,9 @@ class AgentLogger:
         self.enabled = enabled
         self.session_id = session_id or f"session_{int(time.time())}"
         self.log_file = log_file
-
-        # Current session state
         self.current_session: Optional[AgentSessionLog] = None
         self.step_counter = 0
         self.start_time = 0.0
-
-        # Color codes for console output (only used when outputting to console)
-        self.colors = {
-            "blue": "\033[94m",
-            "green": "\033[92m",
-            "yellow": "\033[93m",
-            "red": "\033[91m",
-            "purple": "\033[95m",
-            "cyan": "\033[96m",
-            "bold": "\033[1m",
-            "end": "\033[0m",
-        }
 
     def start_session(
         self,
@@ -132,7 +146,16 @@ class AgentLogger:
             total_execution_time_ms=0.0,
         )
 
-        self._log_session_start()
+        self._write("AGENT SESSION STARTED", bold=True, color="blue")
+        self._write_field("Session ID", self.session_id)
+        self._write_field("Provider", provider)
+        self._write_field("Model", model)
+        if system_prompt:
+            self._write_field("System", system_prompt)
+        self._write_field("Query", input_query)
+        if tools_requested:
+            self._write_field("Tools", ", ".join(tools_requested))
+        self._write("=" * SEPARATOR_LENGTH, color="blue")
 
     def log_step(
         self,
@@ -154,7 +177,7 @@ class AgentLogger:
         )
 
         self.current_session.steps.append(entry)
-        self._log_step_output(entry)
+        self._format_step(entry)
 
     def log_tool_call(
         self,
@@ -179,7 +202,7 @@ class AgentLogger:
         )
 
         self.current_session.tool_calls.append(tool_log)
-        self._log_tool_call_output(tool_log)
+        self._format_tool_call(tool_log)
 
     def log_provider_call(
         self,
@@ -201,7 +224,7 @@ class AgentLogger:
 
         if self.level == LogLevel.DEBUG:
             details["request"] = request_data
-            if self.level == LogLevel.DEBUG and response_data:
+            if response_data:
                 details["response"] = response_data
 
         metadata = {"error": error} if error else None
@@ -232,393 +255,159 @@ class AgentLogger:
         ) * 1000
         self.current_session.metadata = metadata
 
-        self._log_session_end()
+        self._write("✅ SESSION COMPLETED", bold=True, color="green")
+        self._write_field("Final Result", final_result)
+        self._write("Session Summary", bold=True)
+
+        session = self.current_session
+        self._write_field("Total Time", f"{session.total_execution_time_ms:.1f}ms")
+        self._write_field("Steps", str(len(session.steps)))
+
+        local_tool_calls = len(session.tool_calls)
+        provider_tool_executions = len(
+            [step for step in session.steps if step.action == "provider_tool_execution"]
+        )
+        self._write_field("Local Tool Calls", str(local_tool_calls))
+        self._write_field("Provider Tool Executions", str(provider_tool_executions))
+        self._write_field(
+            "Total Tool Usage", str(local_tool_calls + provider_tool_executions)
+        )
+
+        if metadata:
+            self._write_field("Metadata", str(list(metadata.keys())))
+
+        self._write("=" * SEPARATOR_LENGTH, color="blue")
 
         session = self.current_session
         self.current_session = None
         return session
 
-    def _log_session_start(self) -> None:
-        """Log the start of an agent session."""
-        if not self.current_session:
-            return
+    def _write(
+        self, text: str, bold: bool = False, color: Optional[str] = None
+    ) -> None:
+        """Unified write method for console and file."""
+        if self.format == LogFormat.JSON:
+            return  # JSON handled separately
 
+        formatted = self._format_text(text, bold, color)
+        print(formatted)
+
+        if self.log_file:
+            self.log_file.write(self._strip_colors(formatted) + "\n")
+            self.log_file.flush()
+
+    def _write_field(self, label: str, value: str) -> None:
+        """Write a labeled field."""
         if self.format == LogFormat.CONSOLE:
-            # Console output with colors
-            self._log_session_start_console()
+            self._write(f"{label}: {value}", color="cyan")
+        else:
+            self._write(f"{label}: {value}")
 
-            # Clean file output without colors
-            if self.log_file:
-                self._log_session_start_file()
+    def _format_text(
+        self, text: str, bold: bool = False, color: Optional[str] = None
+    ) -> str:
+        """Format text with colors for console output."""
+        if self.format != LogFormat.CONSOLE:
+            return text
 
-    def _log_session_start_console(self) -> None:
-        """Log session start to console with colors."""
-        print(
-            f"\n{self.colors['bold']}{self.colors['blue']} AGENT SESSION STARTED{self.colors['end']}"
-        )
-        print(f"{self.colors['cyan']}Session ID:{self.colors['end']} {self.session_id}")
-        print(
-            f"{self.colors['cyan']}Provider:{self.colors['end']} {self.current_session.provider}"
-        )
-        print(
-            f"{self.colors['cyan']}Model:{self.colors['end']} {self.current_session.model}"
-        )
-        if self.current_session.system_prompt:
-            print(
-                f"{self.colors['cyan']}System:{self.colors['end']} {self.current_session.system_prompt}"
-            )
-        print(
-            f"{self.colors['cyan']}Query:{self.colors['end']} {self.current_session.input_query}"
-        )
-        if self.current_session.tools_requested:
-            tools_str = ", ".join(self.current_session.tools_requested)
-            print(f"{self.colors['cyan']}Tools:{self.colors['end']} {tools_str}")
-        print(f"{self.colors['blue']}{'=' * 80}{self.colors['end']}")
+        parts = []
+        if bold:
+            parts.append(self._COLORS["bold"])
+        if color:
+            parts.append(self._COLORS.get(color, ""))
+        parts.append(text)
+        parts.append(self._COLORS["end"])
+        return "".join(parts)
 
-    def _log_session_start_file(self) -> None:
-        """Log session start to file without colors."""
-        if not self.log_file:
-            return
+    def _strip_colors(self, text: str) -> str:
+        """Remove ANSI color codes."""
+        return re.sub(r"\033\[[0-9;]*m", "", text)
 
-        self.log_file.write("\nAGENT SESSION STARTED\n")
-        self.log_file.write(f"Session ID: {self.session_id}\n")
-        self.log_file.write(f"Provider: {self.current_session.provider}\n")
-        self.log_file.write(f"Model: {self.current_session.model}\n")
-        if self.current_session.system_prompt:
-            self.log_file.write(f"System: {self.current_session.system_prompt}\n")
-        self.log_file.write(f"Query: {self.current_session.input_query}\n")
-        if self.current_session.tools_requested:
-            tools_str = ", ".join(self.current_session.tools_requested)
-            self.log_file.write(f"Tools: {tools_str}\n")
-        self.log_file.write("=" * 80 + "\n")
-        self.log_file.flush()
-
-    def _log_step_output(self, entry: LogEntry) -> None:
-        """Output a step log entry."""
-        if self.format == LogFormat.CONSOLE:
-            # Console output with colors
-            self._log_step_console(entry)
-            # Clean file output without colors
-            if self.log_file:
-                self._log_step_file(entry)
-        elif self.format == LogFormat.JSON:
+    def _format_step(self, entry: LogEntry) -> None:
+        """Format and output a step entry."""
+        if self.format == LogFormat.JSON:
             print(json.dumps(asdict(entry), indent=2))
-        elif self.format == LogFormat.MARKDOWN:
-            self._log_step_markdown(entry)
-
-    def _log_step_console(self, entry: LogEntry) -> None:
-        """Log step in console format."""
-        icon_map = {
-            "tool_selection": "🔧",
-            "tool_execution": "⚙️",
-            "provider_api_call": "🌐",
-            "provider_tool_execution": "🛠️",
-            "response_parsing": "📖",
-            "error_handling": "❌",
-        }
-
-        icon = icon_map.get(entry.action, "📝")
-        timestamp = entry.timestamp.split("T")[1][:8]  # HH:MM:SS
-
-        print(
-            f"\n{self.colors['yellow']}[{timestamp}] Step {entry.step}: {icon} {entry.action.replace('_', ' ').title()}{self.colors['end']}"
-        )
-
-        # Format details based on action type
-        if entry.action == "tool_selection":
-            tools = entry.details.get("selected_tools", [])
-            print(
-                f"  {self.colors['purple']}Selected tools:{self.colors['end']} {', '.join(tools)}"
-            )
-
-        elif entry.action == "tool_execution":
-            tool_name = entry.details.get("tool_name")
-            status = entry.details.get("status", "unknown")
-            print(f"  {self.colors['purple']}Tool:{self.colors['end']} {tool_name}")
-            print(f"  {self.colors['purple']}Status:{self.colors['end']} {status}")
-
-        elif entry.action == "provider_api_call":
-            api_type = entry.details.get("api_type")
-            model = entry.details.get("model")
-            tools_count = entry.details.get("tools_count", 0)
-            print(f"  {self.colors['purple']}API:{self.colors['end']} {api_type}")
-            print(f"  {self.colors['purple']}Model:{self.colors['end']} {model}")
-            if tools_count > 0:
-                print(
-                    f"  {self.colors['purple']}Tools:{self.colors['end']} {tools_count} tools attached"
-                )
-
-        elif entry.action == "provider_tool_execution":
-            tools_executed = entry.details.get("tools_executed", [])
-            metadata_types = entry.details.get("metadata_types", [])
-            print(
-                f"  {self.colors['purple']}Tools Executed:{self.colors['end']} {', '.join(tools_executed)}"
-            )
-            if metadata_types:
-                print(
-                    f"  {self.colors['purple']}Metadata Generated:{self.colors['end']} {', '.join(metadata_types)}"
-                )
-
-        # Show detailed info for debug level
-        if self.level == LogLevel.DEBUG:
-            for key, value in entry.details.items():
-                if key not in [
-                    "api_type",
-                    "model",
-                    "tools_count",
-                    "tool_name",
-                    "status",
-                    "selected_tools",
-                ]:
-                    if isinstance(value, dict) and len(str(value)) > 100:
-                        print(
-                            f"  {self.colors['purple']}{key}:{self.colors['end']} {type(value).__name__} ({len(value)} items)"
-                        )
-                    else:
-                        print(
-                            f"  {self.colors['purple']}{key}:{self.colors['end']} {value}"
-                        )
-
-    def _log_step_file(self, entry: LogEntry) -> None:
-        """Log step to file without colors."""
-        if not self.log_file:
             return
 
-        timestamp = entry.timestamp.split("T")[1][:8]  # HH:MM:SS
-
-        self.log_file.write(
-            f"\n[{timestamp}] Step {entry.step}: {entry.action.replace('_', ' ').title()}\n"
-        )
-
-        # Format details based on action type
-        if entry.action == "tool_selection":
-            tools = entry.details.get("selected_tools", [])
-            self.log_file.write(f"  Selected tools: {', '.join(tools)}\n")
-
-        elif entry.action == "tool_execution":
-            tool_name = entry.details.get("tool_name")
-            status = entry.details.get("status", "unknown")
-            self.log_file.write(f"  Tool: {tool_name}\n")
-            self.log_file.write(f"  Status: {status}\n")
-
-        elif entry.action == "provider_api_call":
-            api_type = entry.details.get("api_type")
-            model = entry.details.get("model")
-            tools_count = entry.details.get("tools_count", 0)
-            self.log_file.write(f"  API: {api_type}\n")
-            self.log_file.write(f"  Model: {model}\n")
-            if tools_count > 0:
-                self.log_file.write(f"  Tools: {tools_count} tools attached\n")
-
-        elif entry.action == "provider_tool_execution":
-            tools_executed = entry.details.get("tools_executed", [])
-            metadata_types = entry.details.get("metadata_types", [])
-            self.log_file.write(f"  Tools Executed: {', '.join(tools_executed)}\n")
-            if metadata_types:
-                self.log_file.write(
-                    f"  Metadata Generated: {', '.join(metadata_types)}\n"
-                )
-
-        # Show detailed info for debug level
-        if self.level == LogLevel.DEBUG:
-            for key, value in entry.details.items():
-                if key not in [
-                    "api_type",
-                    "model",
-                    "tools_count",
-                    "tool_name",
-                    "status",
-                    "selected_tools",
-                ]:
-                    if isinstance(value, dict) and len(str(value)) > 100:
-                        self.log_file.write(
-                            f"  {key}: {type(value).__name__} ({len(value)} items)\n"
-                        )
-                    else:
-                        self.log_file.write(f"  {key}: {value}\n")
-
-        self.log_file.flush()
-
-    def _log_tool_call_output(self, tool_log: ToolCallLog) -> None:
-        """Output a tool call log entry."""
-        if self.format == LogFormat.CONSOLE:
-            # Console output with colors
-            self._log_tool_call_console(tool_log)
-            # Clean file output without colors
-            if self.log_file:
-                self._log_tool_call_file(tool_log)
-
-    def _log_tool_call_console(self, tool_log: ToolCallLog) -> None:
-        """Log tool call in console format."""
-        status_icon = "✅" if not tool_log.error else "❌"
-        exec_time = (
-            f" ({tool_log.execution_time_ms:.1f}ms)"
-            if tool_log.execution_time_ms
-            else ""
-        )
-
-        print(
-            f"\n{self.colors['green']}  🔨 TOOL CALL: {tool_log.tool_name} {status_icon}{exec_time}{self.colors['end']}"
-        )
-        print(
-            f"    {self.colors['cyan']}ID:{self.colors['end']} {tool_log.tool_call_id}"
-        )
-
-        # Show inputs
-        if tool_log.inputs:
-            print(f"    {self.colors['cyan']}Inputs:{self.colors['end']}")
-            for key, value in tool_log.inputs.items():
-                print(f"      {key}: {value}")
-
-        # Show outputs
-        if tool_log.outputs:
-            print(f"    {self.colors['cyan']}Output:{self.colors['end']}")
-            print(f"      {tool_log.outputs}")
-
-        # Show errors
-        if tool_log.error:
-            print(
-                f"    {self.colors['red']}Error:{self.colors['end']} {tool_log.error}"
-            )
-
-    def _log_tool_call_file(self, tool_log: ToolCallLog) -> None:
-        """Log tool call to file without colors."""
-        if not self.log_file:
-            return
-
-        status_icon = "✅" if not tool_log.error else "❌"
-        exec_time = (
-            f" ({tool_log.execution_time_ms:.1f}ms)"
-            if tool_log.execution_time_ms
-            else ""
-        )
-
-        self.log_file.write(
-            f"\n  🔨 TOOL CALL: {tool_log.tool_name} {status_icon}{exec_time}\n"
-        )
-        self.log_file.write(f"    ID: {tool_log.tool_call_id}\n")
-
-        # Show inputs
-        if tool_log.inputs:
-            self.log_file.write(f"    Inputs:\n")
-            for key, value in tool_log.inputs.items():
-                self.log_file.write(f"      {key}: {value}\n")
-
-        # Show outputs
-        if tool_log.outputs:
-            self.log_file.write(f"    Output:\n")
-            self.log_file.write(f"      {tool_log.outputs}\n")
-
-        # Show errors
-        if tool_log.error:
-            self.log_file.write(f"    Error: {tool_log.error}\n")
-
-        self.log_file.flush()
-
-    def _log_session_end(self) -> None:
-        """Log the end of an agent session."""
-        if not self.current_session:
-            return
-
-        if self.format == LogFormat.CONSOLE:
-            # Console output with colors
-            self._log_session_end_console()
-            # Clean file output without colors
-            if self.log_file:
-                self._log_session_end_file()
-
-    def _log_session_end_console(self) -> None:
-        """Log session end to console with colors."""
-        print(
-            f"\n{self.colors['bold']}{self.colors['green']}✅ SESSION COMPLETED{self.colors['end']}"
-        )
-        print(f"{self.colors['cyan']}Final Result:{self.colors['end']}")
-        print(f"  {self.current_session.final_result}")
-
-        print(f"\n{self.colors['cyan']}Session Summary:{self.colors['end']}")
-        print(
-            f"  {self.colors['purple']}Total Time:{self.colors['end']} {self.current_session.total_execution_time_ms:.1f}ms"
-        )
-        print(
-            f"  {self.colors['purple']}Steps:{self.colors['end']} {len(self.current_session.steps)}"
-        )
-
-        # Count both local and provider tool executions
-        local_tool_calls = len(self.current_session.tool_calls)
-        provider_tool_executions = len(
-            [
-                step
-                for step in self.current_session.steps
-                if step.action == "provider_tool_execution"
-            ]
-        )
-        total_tool_usage = local_tool_calls + provider_tool_executions
-
-        print(
-            f"  {self.colors['purple']}Local Tool Calls:{self.colors['end']} {local_tool_calls}"
-        )
-        print(
-            f"  {self.colors['purple']}Provider Tool Executions:{self.colors['end']} {provider_tool_executions}"
-        )
-        print(
-            f"  {self.colors['purple']}Total Tool Usage:{self.colors['end']} {total_tool_usage}"
-        )
-
-        # Show metadata summary
-        if self.current_session.metadata:
-            print(
-                f"  {self.colors['purple']}Metadata:{self.colors['end']} {list(self.current_session.metadata.keys())}"
-            )
-
-        print(f"{self.colors['blue']}{'=' * 80}{self.colors['end']}\n")
-
-    def _log_session_end_file(self) -> None:
-        """Log session end to file without colors."""
-        if not self.log_file:
-            return
-
-        self.log_file.write(f"\nSESSION COMPLETED\n")
-        self.log_file.write(f"Final Result:\n")
-        self.log_file.write(f"  {self.current_session.final_result}\n")
-
-        self.log_file.write(f"\nSession Summary:\n")
-        self.log_file.write(
-            f"  Total Time: {self.current_session.total_execution_time_ms:.1f}ms\n"
-        )
-        self.log_file.write(f"  Steps: {len(self.current_session.steps)}\n")
-
-        # Count both local and provider tool executions
-        local_tool_calls = len(self.current_session.tool_calls)
-        provider_tool_executions = len(
-            [
-                step
-                for step in self.current_session.steps
-                if step.action == "provider_tool_execution"
-            ]
-        )
-        total_tool_usage = local_tool_calls + provider_tool_executions
-
-        self.log_file.write(f"  Local Tool Calls: {local_tool_calls}\n")
-        self.log_file.write(f"  Provider Tool Executions: {provider_tool_executions}\n")
-        self.log_file.write(f"  Total Tool Usage: {total_tool_usage}\n")
-
-        # Show metadata summary
-        if self.current_session.metadata:
-            self.log_file.write(
-                f"  Metadata: {list(self.current_session.metadata.keys())}\n"
-            )
-
-        self.log_file.write("=" * 80 + "\n")
-        self.log_file.flush()
-
-    def _log_step_markdown(self, entry: LogEntry) -> None:
-        """Log step in markdown format."""
+        icon = self._ICONS.get(entry.action, "📝")
+        timestamp = entry.timestamp.split(ISO_TIMESTAMP_SEPARATOR)[1][
+            :TIMESTAMP_SUBSTRING_LENGTH
+        ]  # HH:MM:SS
         action_title = entry.action.replace("_", " ").title()
-        print(f"\n### Step {entry.step}: {action_title}")
-        print(f"**Timestamp:** {entry.timestamp}")
 
-        for key, value in entry.details.items():
-            print(f"**{key.replace('_', ' ').title()}:** {value}")
+        self._write(
+            f"\n[{timestamp}] Step {entry.step}: {icon} {action_title}", color="yellow"
+        )
+
+        # Format action-specific details
+        self._format_step_details(entry)
+
+        # Debug level shows all details
+        if self.level == LogLevel.DEBUG:
+            for key, value in entry.details.items():
+                if (
+                    isinstance(value, dict)
+                    and len(str(value)) > DICT_STRING_LENGTH_THRESHOLD
+                ):
+                    self._write(f"  {key}: {type(value).__name__} ({len(value)} items)")
+                else:
+                    self._write(f"  {key}: {value}")
+
+    def _format_step_details(self, entry: LogEntry) -> None:
+        """Format details based on action type."""
+        action = entry.action
+        details = entry.details
+
+        if action == "tool_selection":
+            tools = details.get("selected_tools", [])
+            self._write(f"  Selected tools: {', '.join(tools)}", color="purple")
+        elif action == "tool_execution":
+            self._write(f"  Tool: {details.get('tool_name')}", color="purple")
+            self._write(f"  Status: {details.get('status', 'unknown')}", color="purple")
+        elif action == "provider_api_call":
+            self._write(f"  API: {details.get('api_type')}", color="purple")
+            self._write(f"  Model: {details.get('model')}", color="purple")
+            if details.get("tools_count", 0) > 0:
+                self._write(
+                    f"  Tools: {details['tools_count']} tools attached", color="purple"
+                )
+        elif action == "provider_tool_execution":
+            tools_executed = details.get("tools_executed", [])
+            self._write(
+                f"  Tools Executed: {', '.join(tools_executed)}", color="purple"
+            )
+            metadata_types = details.get("metadata_types", [])
+            if metadata_types:
+                self._write(
+                    f"  Metadata Generated: {', '.join(metadata_types)}", color="purple"
+                )
+
+    def _format_tool_call(self, tool_log: ToolCallLog) -> None:
+        """Format and output a tool call."""
+        status_icon = "✅" if not tool_log.error else "❌"
+        exec_time = (
+            f" ({tool_log.execution_time_ms:.1f}ms)"
+            if tool_log.execution_time_ms
+            else ""
+        )
+
+        self._write(
+            f"\n  🔨 TOOL CALL: {tool_log.tool_name} {status_icon}{exec_time}",
+            color="green",
+        )
+        self._write(f"    ID: {tool_log.tool_call_id}", color="cyan")
+
+        if tool_log.inputs:
+            self._write("    Inputs:", color="cyan")
+            for key, value in tool_log.inputs.items():
+                self._write(f"      {key}: {value}")
+
+        if tool_log.outputs:
+            self._write("    Output:", color="cyan")
+            self._write(f"      {tool_log.outputs}")
+
+        if tool_log.error:
+            self._write(f"    Error: {tool_log.error}", color="red")
 
     def export_session(self, format: LogFormat = LogFormat.JSON) -> str:
         """Export current session in specified format."""
@@ -629,59 +418,68 @@ class AgentLogger:
             return json.dumps(asdict(self.current_session), indent=2)
         elif format == LogFormat.MARKDOWN:
             return self._export_markdown()
-        else:
-            return str(self.current_session)
+        return str(self.current_session)
 
     def _export_markdown(self) -> str:
         """Export session as markdown documentation."""
         if not self.current_session:
             return ""
 
-        md = f"# Agent Session Report\n\n"
-        md += f"**Session ID:** {self.current_session.session_id}\n"
-        md += f"**Provider:** {self.current_session.provider}\n"
-        md += f"**Model:** {self.current_session.model}\n"
-        md += f"**Start Time:** {self.current_session.start_time}\n"
-        md += f"**Duration:** {self.current_session.total_execution_time_ms:.1f}ms\n\n"
+        s = self.current_session
+        md = [
+            "# Agent Session Report",
+            f"**Session ID:** {s.session_id}",
+            f"**Provider:** {s.provider}",
+            f"**Model:** {s.model}",
+            f"**Start Time:** {s.start_time}",
+            f"**Duration:** {s.total_execution_time_ms:.1f}ms",
+            "",
+            "## Input Query",
+            f"```\n{s.input_query}\n```",
+        ]
 
-        md += f"## Input Query\n```\n{self.current_session.input_query}\n```\n\n"
+        if s.system_prompt:
+            md.extend(["", "## System Prompt", f"```\n{s.system_prompt}\n```"])
 
-        if self.current_session.system_prompt:
-            md += (
-                f"## System Prompt\n```\n{self.current_session.system_prompt}\n```\n\n"
+        if s.tools_requested:
+            md.extend(
+                ["", "## Tools Requested"] + [f"- {tool}" for tool in s.tools_requested]
             )
 
-        if self.current_session.tools_requested:
-            md += f"## Tools Requested\n"
-            for tool in self.current_session.tools_requested:
-                md += f"- {tool}\n"
-            md += "\n"
+        md.extend(["", "## Execution Steps"])
+        for step in s.steps:
+            md.append(f"### {step.step}. {step.action.replace('_', ' ').title()}")
+            md.extend(
+                [
+                    f"**{k.replace('_', ' ').title()}:** {v}"
+                    for k, v in step.details.items()
+                ]
+            )
+            md.append("")
 
-        md += f"## Execution Steps\n"
-        for step in self.current_session.steps:
-            md += f"### {step.step}. {step.action.replace('_', ' ').title()}\n"
-            for key, value in step.details.items():
-                md += f"**{key.replace('_', ' ').title()}:** {value}\n"
-            md += "\n"
-
-        if self.current_session.tool_calls:
-            md += f"## Tool Calls\n"
-            for i, call in enumerate(self.current_session.tool_calls, 1):
-                md += f"### {i}. {call.tool_name}\n"
-                md += f"**ID:** {call.tool_call_id}\n"
+        if s.tool_calls:
+            md.extend(["", "## Tool Calls"])
+            for i, call in enumerate(s.tool_calls, 1):
+                md.extend(
+                    [
+                        f"### {i}. {call.tool_name}",
+                        f"**ID:** {call.tool_call_id}",
+                    ]
+                )
                 if call.inputs:
-                    md += f"**Inputs:**\n```json\n{json.dumps(call.inputs, indent=2)}\n```\n"
+                    md.append(
+                        f"**Inputs:**\n```json\n{json.dumps(call.inputs, indent=2)}\n```"
+                    )
                 if call.outputs:
-                    md += f"**Output:**\n```\n{call.outputs}\n```\n"
+                    md.append(f"**Output:**\n```\n{call.outputs}\n```")
                 if call.error:
-                    md += f"**Error:** {call.error}\n"
+                    md.append(f"**Error:** {call.error}")
                 if call.execution_time_ms:
-                    md += f"**Execution Time:** {call.execution_time_ms:.1f}ms\n"
-                md += "\n"
+                    md.append(f"**Execution Time:** {call.execution_time_ms:.1f}ms")
+                md.append("")
 
-        md += f"## Final Result\n```\n{self.current_session.final_result}\n```\n"
-
-        return md
+        md.extend(["", "## Final Result", f"```\n{s.final_result}\n```"])
+        return "\n".join(md)
 
 
 class AgentLoggerContext:
@@ -716,14 +514,15 @@ class AgentLoggerContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """End logging session."""
-        if exc_type:
-            error_msg = f"Session failed: {exc_type.__name__}: {exc_val}"
-            self.logger.end_session(error_msg)
-        else:
-            self.logger.end_session("Session completed successfully")
+        error_msg = (
+            f"Session failed: {exc_type.__name__}: {exc_val}"
+            if exc_type
+            else "Session completed successfully"
+        )
+        self.logger.end_session(error_msg)
 
 
-# Global logger instance for easy access
+# Global logger instance
 _global_logger: Optional[AgentLogger] = None
 
 
@@ -777,7 +576,6 @@ def log_provider_call(
         _global_logger.log_provider_call(api_type, request_data, response_data, error)
 
 
-# Convenience functions for common logging patterns
 def log_agent_start(
     provider: str,
     model: str,

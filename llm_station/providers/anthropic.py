@@ -2,12 +2,11 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
-from .base import ModelConfig, ProviderAdapter
-from ..schemas.messages import Message, ModelResponse, ToolCall
-from ..schemas.tooling import ToolSpec
+from ..provider import Provider
+from ..types import Message, ModelConfig, ModelResponse, ToolCall, ToolSpec
 
 
-class AnthropicProvider(ProviderAdapter):
+class AnthropicProvider(Provider):
     """Adapter for Anthropic Claude models via Messages API.
 
     Supports Claude models with server-side tool execution including web search
@@ -17,6 +16,11 @@ class AnthropicProvider(ProviderAdapter):
     """
 
     name = "anthropic"
+
+    # Rate limiting constants
+    RATE_LIMIT_WINDOW_SECONDS = 60  # 1 minute window
+    MAX_TOKENS_PER_MINUTE = 10000
+    SAFE_TOKEN_LIMIT = 9500  # Stay under limit with buffer
 
     def __init__(self, api_key: Optional[str] = None, **kwargs):
         super().__init__(api_key, **kwargs)
@@ -31,7 +35,10 @@ class AnthropicProvider(ProviderAdapter):
         import time
 
         current_time = time.time()
-        if current_time - self._token_usage["last_reset"] > 60:  # 1 minute
+        if (
+            current_time - self._token_usage["last_reset"]
+            > self.RATE_LIMIT_WINDOW_SECONDS
+        ):
             self._token_usage = {
                 "input_tokens": 0,
                 "output_tokens": 0,
@@ -40,10 +47,11 @@ class AnthropicProvider(ProviderAdapter):
             self._request_count = 0
 
     def _can_make_request(self, estimated_tokens: int = 1000) -> bool:
-        """Check if we can make request without exceeding 10K token/minute limit."""
+        """Check if we can make request without exceeding token/minute limit."""
         self._reset_token_usage_if_needed()
-        # Stay under 9500 tokens per minute
-        return (self._token_usage["input_tokens"] + estimated_tokens) < 9500
+        return (
+            self._token_usage["input_tokens"] + estimated_tokens
+        ) < self.SAFE_TOKEN_LIMIT
 
     def _add_token_usage(self, input_tokens: int, output_tokens: int):
         """Track token usage for rate limiting."""
@@ -80,10 +88,12 @@ class AnthropicProvider(ProviderAdapter):
             count_response = client.messages.count_tokens(**request)
             return count_response.input_tokens
 
-        except Exception:
+        except (ImportError, AttributeError) as e:
             # Fallback estimation if token counting fails
+            # Rough estimation: 4 chars per token
+            CHARS_PER_TOKEN_ESTIMATE = 4
             total_chars = sum(len(m.content) for m in messages)
-            return total_chars // 4  # Rough estimation: 4 chars per token
+            return total_chars // CHARS_PER_TOKEN_ESTIMATE
 
     def prepare_tools(self, tools: List[ToolSpec]) -> List[Dict[str, Any]]:
         """Map normalized ToolSpec to Anthropic Messages API tool definitions.
@@ -160,7 +170,7 @@ class AnthropicProvider(ProviderAdapter):
     def _map_messages(messages: List[Message]) -> Dict[str, Any]:
         # Anthropic expects system as top-level, messages with role user/assistant
         # Tool results are provided as user messages with content blocks of type tool_result.
-        from ..schemas.messages import ToolMessage
+        from ..types import ToolMessage
 
         system: Optional[str] = None
         msgs: List[Dict[str, Any]] = []
@@ -488,8 +498,12 @@ class AnthropicProvider(ProviderAdapter):
         if not self._can_make_request(estimated_tokens):
             import time
 
-            wait_time = 60 - (time.time() - self._token_usage["last_reset"])
+            wait_time = self.RATE_LIMIT_WINDOW_SECONDS - (
+                time.time() - self._token_usage["last_reset"]
+            )
             if wait_time > 0:
+                # User-facing message for rate limit protection
+                # Note: Using print() for visibility; could use logging if configured
                 print(f"⏳ Rate limit protection: waiting {wait_time:.1f} seconds")
                 time.sleep(wait_time)
                 self._reset_token_usage_if_needed()
@@ -574,5 +588,5 @@ class AnthropicProvider(ProviderAdapter):
             raise RuntimeError(
                 "Anthropic SDK not installed. Install with: pip install anthropic"
             )
-        except Exception as e:
+        except (ImportError, AttributeError, KeyError, ValueError) as e:
             raise RuntimeError(f"Anthropic Messages API call failed: {str(e)}")
