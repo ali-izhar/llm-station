@@ -1,89 +1,193 @@
-#!/usr/bin/env python3
-"""
-LLM Station Tools - Smart Tool Interface
+"""Tool base class, registry, and implementations."""
 
-This module provides a clean, provider-agnostic tool interface using simple,
-memorable names that automatically route to the best available provider.
+from __future__ import annotations
 
-Available Smart Tools:
-- search: Web search and research
-- code: Code execution and data analysis
-- image: Image generation and creation
-- json: JSON formatting and parsing
-- fetch: URL fetching and downloading
-- url: URL content processing and extraction
+import abc
+from typing import Any, Dict, Optional, Type
 
-Usage:
-    agent.generate("Your prompt", tools=["search", "code", "json"])
-"""
+from ..types import ToolResult, ToolSpec
 
-from .registry import register_tool, register_provider_tool
-from .fetch_url import FetchUrlTool
-from .json_format import JsonFormatTool
+# Smart tool routing
+_SMART_TOOLS: Dict[str, list] = {
+    "search": [
+        {"tool": "google_search", "provider": "google", "score": 9},
+        {"tool": "anthropic_web_search", "provider": "anthropic", "score": 8},
+        {"tool": "openai_web_search", "provider": "openai", "score": 7},
+        {"tool": "huggingface_web_search", "provider": "huggingface", "score": 6},
+    ],
+    "code": [
+        {"tool": "google_code_execution", "provider": "google", "score": 9},
+        {"tool": "openai_code_interpreter", "provider": "openai", "score": 8},
+        {"tool": "anthropic_code_execution", "provider": "anthropic", "score": 7},
+    ],
+    "image": [
+        {"tool": "openai_image_generation", "provider": "openai", "score": 9},
+        {"tool": "google_image_generation", "provider": "google", "score": 8},
+    ],
+    "fetch": [{"tool": "fetch_url", "provider": "local", "score": 6}],
+    "json": [{"tool": "json_format", "provider": "local", "score": 7}],
+}
 
-# Import provider tool factories
-from .web_search.openai import OpenAIWebSearch
-from .web_search.anthropic import AnthropicWebSearch
-from .web_search.google import GoogleWebSearch, GoogleSearchRetrieval
-from .web_search.huggingface import HuggingFaceWebSearch
-from .web_fetch.anthropic import AnthropicWebFetch
-from .code_execution.anthropic import AnthropicCodeExecution
-from .code_execution.openai import OpenAICodeInterpreter
-from .code_execution.google import GoogleCodeExecution
-from .image_generation.openai import OpenAIImageGeneration
-from .image_generation.google import GoogleImageGeneration
-from .url_context.google import GoogleUrlContext
+_TOOL_ALIASES: Dict[str, str] = {
+    "websearch": "search",
+    "web_search": "search",
+    "python": "code",
+    "execute": "code",
+    "compute": "code",
+    "run": "code",
+    "draw": "image",
+    "create_image": "image",
+    "generate_image": "image",
+    "download": "fetch",
+    "format_json": "json",
+    "json_format": "json",
+}
+
+
+class Tool(abc.ABC):
+    """Base tool class."""
+
+    @abc.abstractmethod
+    def spec(self) -> ToolSpec:
+        """Return tool specification."""
+        raise NotImplementedError
+
+    def validate_args(self, args: Dict[str, Any]) -> None:
+        """Validate tool arguments."""
+        schema = self.spec().input_schema or {}
+        required = schema.get("required", [])
+        for r in required:
+            if r not in args:
+                raise ValueError(f"Missing required argument: {r}")
+
+    @abc.abstractmethod
+    def run(self, *, tool_call_id: str, **kwargs: Any) -> ToolResult:
+        """Execute tool."""
+        raise NotImplementedError
+
+
+# Simple registry
+_registry: Dict[str, Type[Tool]] = {}
+_provider_tools: Dict[str, ToolSpec] = {}  # Provider-native tools
+
+
+def register(name: str, tool_class: Type[Tool]) -> None:
+    """Register a local tool."""
+    _registry[name] = tool_class
+
+
+def register_provider_tool(name: str, spec: ToolSpec) -> None:
+    """Register a provider-native tool."""
+    _provider_tools[name] = spec
+
+
+def get(name: str) -> Tool:
+    """Get a local tool instance."""
+    if name not in _registry:
+        raise KeyError(f"Unknown tool: {name}. Available: {list(_registry.keys())}")
+    return _registry[name]()
+
+
+def get_spec(name: str, provider_preference: Optional[str] = None) -> ToolSpec:
+    """Get a tool spec with smart routing support."""
+    # Check local tools first
+    if name in _registry:
+        return _registry[name]().spec()
+
+    # Check provider tools (exact match)
+    if name in _provider_tools:
+        return _provider_tools[name]
+
+    # Smart routing for generic names
+    resolved_name = _TOOL_ALIASES.get(name, name)
+
+    if resolved_name not in _SMART_TOOLS:
+        raise KeyError(f"Unknown tool: {name}")
+
+    tool_options = _SMART_TOOLS[resolved_name]
+
+    # Try provider preference first
+    if provider_preference:
+        for option in tool_options:
+            if option["provider"] == provider_preference:
+                tool_name = option["tool"]
+                if tool_name in _provider_tools:
+                    return _provider_tools[tool_name]
+                if tool_name in _registry:
+                    return _registry[tool_name]().spec()
+
+    # Use highest scored option
+    best_option = max(tool_options, key=lambda x: x["score"])
+    tool_name = best_option["tool"]
+    if tool_name in _provider_tools:
+        return _provider_tools[tool_name]
+    if tool_name in _registry:
+        return _registry[tool_name]().spec()
+
+    raise KeyError(f"Tool not found: {tool_name}")
+
+
+def list_tools() -> Dict[str, str]:
+    """List all available tools."""
+    result = {}
+    for name in _registry:
+        result[name] = "local"
+    for name in _provider_tools:
+        result[name] = "provider"
+    return result
+
+
+# Import tool implementations
+from .search import (
+    OpenAISearch,
+    AnthropicSearch,
+    GoogleSearch,
+    HuggingFaceSearch,
+)
+from .code import OpenAICode, AnthropicCode, GoogleCode
+from .image import OpenAIImage, GoogleImage
+from .local import FetchUrlTool, JsonFormatTool
 
 # Register local tools
-register_tool("fetch_url", FetchUrlTool)
-register_tool("json_format", JsonFormatTool)
+register("fetch_url", FetchUrlTool)
+register("json_format", JsonFormatTool)
 
-# Register provider tools for smart routing
-register_provider_tool("openai_web_search", lambda: OpenAIWebSearch().spec())
-register_provider_tool(
-    "openai_web_search_preview", lambda: OpenAIWebSearch(preview=True).spec()
-)
-register_provider_tool(
-    "openai_code_interpreter", lambda: OpenAICodeInterpreter().spec()
-)
-register_provider_tool(
-    "openai_image_generation", lambda: OpenAIImageGeneration().spec()
-)
+# Register provider tools
+register_provider_tool("openai_web_search", OpenAISearch().spec())
+register_provider_tool("openai_web_search_preview", OpenAISearch(preview=True).spec())
+register_provider_tool("openai_code_interpreter", OpenAICode().spec())
+register_provider_tool("openai_image_generation", OpenAIImage().spec())
 
-register_provider_tool("anthropic_web_search", lambda: AnthropicWebSearch().spec())
-register_provider_tool("anthropic_web_fetch", lambda: AnthropicWebFetch().spec())
-register_provider_tool(
-    "anthropic_code_execution", lambda: AnthropicCodeExecution().spec()
-)
+register_provider_tool("anthropic_web_search", AnthropicSearch().spec())
+register_provider_tool("anthropic_code_execution", AnthropicCode().spec())
 
-register_provider_tool("google_search", lambda: GoogleWebSearch().spec())
-register_provider_tool(
-    "google_search_retrieval",
-    lambda: GoogleSearchRetrieval(mode="MODE_DYNAMIC", dynamic_threshold=0.7).spec(),
-)
-register_provider_tool("google_code_execution", lambda: GoogleCodeExecution().spec())
-register_provider_tool("google_url_context", lambda: GoogleUrlContext().spec())
-register_provider_tool(
-    "google_image_generation", lambda: GoogleImageGeneration().spec()
-)
+register_provider_tool("google_search", GoogleSearch().spec())
+register_provider_tool("google_code_execution", GoogleCode().spec())
+register_provider_tool("google_image_generation", GoogleImage().spec())
 
-register_provider_tool("huggingface_web_search", lambda: HuggingFaceWebSearch().spec())
+register_provider_tool("huggingface_web_search", HuggingFaceSearch().spec())
 
 __all__ = [
+    # Base class and registry
+    "Tool",
+    "register",
+    "register_provider_tool",
+    "get",
+    "get_spec",
+    "list_tools",
+    # Search tools
+    "OpenAISearch",
+    "AnthropicSearch",
+    "GoogleSearch",
+    "HuggingFaceSearch",
+    # Code tools
+    "OpenAICode",
+    "AnthropicCode",
+    "GoogleCode",
+    # Image tools
+    "OpenAIImage",
+    "GoogleImage",
     # Local tools
     "FetchUrlTool",
     "JsonFormatTool",
-    # Provider tool factories
-    "OpenAIWebSearch",
-    "OpenAICodeInterpreter",
-    "OpenAIImageGeneration",
-    "AnthropicWebSearch",
-    "AnthropicWebFetch",
-    "AnthropicCodeExecution",
-    "GoogleWebSearch",
-    "GoogleSearchRetrieval",
-    "GoogleCodeExecution",
-    "GoogleUrlContext",
-    "GoogleImageGeneration",
-    "HuggingFaceWebSearch",
 ]

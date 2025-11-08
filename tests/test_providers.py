@@ -7,21 +7,21 @@ Tests all three providers without making actual API calls.
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from llm_station import Agent
-from llm_station.models.openai import OpenAIProvider
-from llm_station.models.anthropic import AnthropicProvider
-from llm_station.models.google import GoogleProvider
-from llm_station.models.mock import MockProvider
-from llm_station.models.base import ModelConfig
-from llm_station.schemas.messages import (
+from llm_station import (
+    Agent,
+    ModelConfig,
+    ToolSpec,
     UserMessage,
     SystemMessage,
     ModelResponse,
     ToolCall,
     AssistantMessage,
+    get_spec,
 )
-from llm_station.schemas.tooling import ToolSpec
-from llm_station.tools.registry import get_tool_spec
+from llm_station.providers.openai import OpenAIProvider
+from llm_station.providers.anthropic import AnthropicProvider
+from llm_station.providers.google import GoogleProvider
+from llm_station.providers.mock import MockProvider
 
 
 class TestOpenAIProvider:
@@ -234,7 +234,7 @@ class TestAgentWithSmartTools:
         assert "invalid_tool" in str(exc_info.value)
         assert "Available smart tools:" in str(exc_info.value)
 
-    @patch("llm_station.models.openai.OpenAIProvider.generate")
+    @patch("llm_station.providers.openai.OpenAIProvider.generate")
     def test_provider_receives_correct_tools(self, mock_generate):
         """Test that providers receive correctly routed tools."""
         mock_generate.return_value = ModelResponse(content="Test", tool_calls=[])
@@ -260,7 +260,7 @@ class TestToolSpecGeneration:
         providers = ["google", "anthropic", "openai"]
 
         for provider in providers:
-            spec = get_tool_spec("search", provider_preference=provider)
+            spec = get_spec("search", provider_preference=provider)
             assert spec.provider == provider
             assert spec.requires_network == True
 
@@ -269,7 +269,7 @@ class TestToolSpecGeneration:
         providers = ["google", "openai", "anthropic"]
 
         for provider in providers:
-            spec = get_tool_spec("code", provider_preference=provider)
+            spec = get_spec("code", provider_preference=provider)
             assert spec.provider == provider
 
     def test_local_tool_specs(self):
@@ -277,7 +277,7 @@ class TestToolSpecGeneration:
         local_tools = ["json", "fetch"]
 
         for tool in local_tools:
-            spec = get_tool_spec(tool)
+            spec = get_spec(tool)
             # Local tools have no provider
             assert spec.provider is None or spec.provider == "local"
 

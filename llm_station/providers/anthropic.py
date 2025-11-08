@@ -2,12 +2,11 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
-from .base import ModelConfig, ProviderAdapter
-from ..schemas.messages import Message, ModelResponse, ToolCall
-from ..schemas.tooling import ToolSpec
+from ..provider import Provider
+from ..types import Message, ModelConfig, ModelResponse, ToolCall, ToolSpec
 
 
-class AnthropicProvider(ProviderAdapter):
+class AnthropicProvider(Provider):
     """Adapter for Anthropic Claude models via Messages API.
 
     Supports Claude models with server-side tool execution including web search
@@ -160,7 +159,7 @@ class AnthropicProvider(ProviderAdapter):
     def _map_messages(messages: List[Message]) -> Dict[str, Any]:
         # Anthropic expects system as top-level, messages with role user/assistant
         # Tool results are provided as user messages with content blocks of type tool_result.
-        from ..schemas.messages import ToolMessage
+        from ..types import ToolMessage
 
         system: Optional[str] = None
         msgs: List[Dict[str, Any]] = []

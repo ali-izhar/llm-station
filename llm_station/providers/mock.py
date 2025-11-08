@@ -1,23 +1,17 @@
-#!/usr/bin/env python3
+"""Mock provider for testing."""
+
 from __future__ import annotations
 
 import json
 import re
 from typing import Any, Dict, List, Optional
 
-from .base import ModelConfig, ProviderAdapter
-from ..schemas.messages import Message, ModelResponse, ToolCall
-from ..schemas.tooling import ToolSpec
+from ..provider import Provider
+from ..types import Message, ModelConfig, ModelResponse, ToolCall, ToolSpec
 
 
-class MockProvider(ProviderAdapter):
-    """A simple offline provider for development/testing the agent loop.
-
-    Behavior:
-    - Echoes the last user message as assistant content
-    - If the last user message matches a simple pattern like: call <tool>({"k":"v"})
-      it returns a tool_call with that name and parsed JSON args.
-    """
+class MockProvider(Provider):
+    """Simple offline provider for development/testing."""
 
     name = "mock"
 

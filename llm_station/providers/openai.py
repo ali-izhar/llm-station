@@ -5,9 +5,8 @@ import json
 from typing import Any, Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 
-from .base import ModelConfig, ProviderAdapter
-from ..schemas.messages import Message, ModelResponse, ToolCall
-from ..schemas.tooling import ToolSpec
+from ..provider import Provider
+from ..types import Message, ModelConfig, ModelResponse, ToolCall, ToolSpec
 
 
 @dataclass
@@ -29,7 +28,7 @@ class OpenAIConfig:
     instructions: Optional[str] = None  # Custom instructions for Responses API
 
 
-class OpenAIProvider(ProviderAdapter):
+class OpenAIProvider(Provider):
     """Adapter for OpenAI APIs (Chat Completions and Responses).
 
     Automatically selects the appropriate API based on tools:
@@ -117,13 +116,36 @@ class OpenAIProvider(ProviderAdapter):
 
             else:
                 # Standard function tool for local tools
+                # Clean up schema to ensure OpenAI compatibility
+                tool_schema = dict(t.input_schema)
+
+                # Remove type restrictions that might cause issues
+                # OpenAI's function calling works best with explicit types or no type restriction
+                if "properties" in tool_schema:
+                    for prop_name, prop_schema in tool_schema["properties"].items():
+                        if isinstance(prop_schema, dict):
+                            # If description is clear, we can remove strict type for flexibility
+                            # This helps with tools like json_format that accept any JSON value
+                            if prop_name == "data" and "description" in prop_schema:
+                                # Keep description but remove type restriction for json_format
+                                if (
+                                    "type" in prop_schema
+                                    and prop_schema.get("type") == "object"
+                                ):
+                                    # Remove type to allow any JSON value
+                                    prop_schema_copy = dict(prop_schema)
+                                    prop_schema_copy.pop("type", None)
+                                    tool_schema["properties"][
+                                        prop_name
+                                    ] = prop_schema_copy
+
                 prepared.append(
                     {
                         "type": "function",
                         "function": {
                             "name": t.name,
                             "description": t.description,
-                            "parameters": t.input_schema,
+                            "parameters": tool_schema,
                         },
                     }
                 )
@@ -205,17 +227,21 @@ class OpenAIProvider(ProviderAdapter):
 
                 # Web search call metadata
                 if item_type == "web_search_call":
+                    action = item.get("action") or {}
                     web_search_metadata = {
                         "id": item.get("id"),
                         "status": item.get("status"),
-                        "action": item.get("action", {}),
-                        "query": item.get("action", {}).get("query", ""),
-                        "search_type": item.get("action", {}).get("type", ""),
+                        "action": action,
+                        "query": action.get("query", ""),
+                        "search_type": action.get("type", ""),
                     }
                     # Extract sources if available
-                    action = item.get("action", {})
-                    if "sources" in action:
-                        sources = action["sources"]
+                    if action and "sources" in action and action["sources"]:
+                        # Ensure sources is a list
+                        if isinstance(action["sources"], list):
+                            sources.extend(action["sources"])
+                        else:
+                            sources.append(action["sources"])
 
                 # Code interpreter call metadata
                 elif item_type == "code_interpreter_call":
@@ -266,10 +292,11 @@ class OpenAIProvider(ProviderAdapter):
                                     annotation_type = annotation.get("type")
 
                                     if annotation_type == "url_citation":
+                                        url = annotation.get("url")
                                         citations.append(
                                             {
                                                 "type": "url_citation",
-                                                "url": annotation.get("url"),
+                                                "url": url,
                                                 "title": annotation.get("title"),
                                                 "start_index": annotation.get(
                                                     "start_index"
@@ -279,6 +306,9 @@ class OpenAIProvider(ProviderAdapter):
                                                 ),
                                             }
                                         )
+                                        # Extract unique URLs as sources
+                                        if url and url not in sources:
+                                            sources.append(url)
 
                                     elif annotation_type == "container_file_citation":
                                         file_citations.append(
@@ -298,15 +328,6 @@ class OpenAIProvider(ProviderAdapter):
                                                 "index": annotation.get("index"),
                                             }
                                         )
-
-        # Handle single object format (alternative Responses API format)
-        elif isinstance(payload, dict):
-            if "output" in payload:
-                content = str(payload["output"])
-            elif "text" in payload:
-                content = str(payload["text"])
-            elif "output_text" in payload:
-                content = payload["output_text"]
 
         # Assemble final content from parts
         final_content = "\n".join(content_parts).strip() if content_parts else ""
@@ -433,7 +454,11 @@ class OpenAIProvider(ProviderAdapter):
 
     def get_api_type(self, config: ModelConfig, tools: Optional[List[ToolSpec]]) -> str:
         """Get the API type that will be used for this request."""
-        needs_responses_api = tools and any(
+        if not tools:
+            return "chat_completions"
+
+        # Check if we have server-side tools (Responses API)
+        has_server_tools = any(
             t.provider == "openai"
             and t.provider_type
             in {
@@ -445,7 +470,25 @@ class OpenAIProvider(ProviderAdapter):
             for t in tools
         )
 
-        return "responses_api" if needs_responses_api else "chat_completions"
+        # Check if we have local tools (function tools)
+        has_local_tools = any(
+            t.provider != "openai"
+            or t.provider_type
+            not in {
+                "web_search",
+                "web_search_preview",
+                "code_interpreter",
+                "image_generation",
+            }
+            for t in tools
+        )
+
+        # Responses API doesn't support mixing server tools with function tools
+        # If we have both, use Chat Completions API
+        if has_server_tools and has_local_tools:
+            return "chat_completions"
+
+        return "responses_api" if has_server_tools else "chat_completions"
 
     def _generate_responses_api(
         self,
@@ -477,7 +520,21 @@ class OpenAIProvider(ProviderAdapter):
 
         # Add tools if provided
         if tools:
-            request["tools"] = self.prepare_tools(tools)
+            # Responses API only supports server-side tools, filter out local tools
+            server_tools = [
+                t
+                for t in tools
+                if t.provider == "openai"
+                and t.provider_type
+                in {
+                    "web_search",
+                    "web_search_preview",
+                    "code_interpreter",
+                    "image_generation",
+                }
+            ]
+            if server_tools:
+                request["tools"] = self.prepare_tools(server_tools)
 
         # Add Responses API specific parameters (model-dependent)
         if openai_config.tool_choice:
@@ -579,7 +636,24 @@ class OpenAIProvider(ProviderAdapter):
 
         # Add tools if provided
         if tools:
-            request["tools"] = self.prepare_tools(tools)
+            # Chat Completions API only supports function tools
+            # Filter out server-side tools (web_search, code_interpreter, image_generation)
+            function_tools = [
+                t
+                for t in tools
+                if not (
+                    t.provider == "openai"
+                    and t.provider_type
+                    in {
+                        "web_search",
+                        "web_search_preview",
+                        "code_interpreter",
+                        "image_generation",
+                    }
+                )
+            ]
+            if function_tools:
+                request["tools"] = self.prepare_tools(function_tools)
 
         # JSON response format (basic hint for Chat Completions)
         if config.response_json_schema:

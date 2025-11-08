@@ -67,9 +67,28 @@ def generate_log_filename(
 def configure_logging_from_args(
     args: argparse.Namespace, provider: str = "unknown", model: str = "unknown"
 ) -> Optional[object]:
-    """Configure logging based on parsed command line arguments."""
+    """Configure logging based on parsed command line arguments.
+
+    Args:
+        args: Parsed command line arguments
+        provider: Provider name for log filename generation
+        model: Model name for log filename generation
+
+    Returns:
+        Cleanup function if logging is enabled, None otherwise
+
+    Raises:
+        ValueError: If log file path is invalid
+        OSError: If log file cannot be created
+    """
     if not getattr(args, "log", False):
         return None
+
+    # Validate inputs
+    if not isinstance(provider, str):
+        provider = "unknown"
+    if not isinstance(model, str):
+        model = "unknown"
 
     # Parse log level
     level_map = {
@@ -78,7 +97,7 @@ def configure_logging_from_args(
         "info": LogLevel.INFO,
         "debug": LogLevel.DEBUG,
     }
-    level = level_map[args.log_level]
+    level = level_map.get(args.log_level, LogLevel.INFO)
 
     # Parse log format
     format_map = {
@@ -86,13 +105,16 @@ def configure_logging_from_args(
         "json": LogFormat.JSON,
         "markdown": LogFormat.MARKDOWN,
     }
-    format = format_map[args.log_format]
+    format = format_map.get(args.log_format, LogFormat.CONSOLE)
 
     # Setup logging
     logger = setup_logging(level=level, format=format, enabled=True)
 
     # Always create logs directory when logging is enabled
-    os.makedirs("logs", exist_ok=True)
+    try:
+        os.makedirs("logs", exist_ok=True)
+    except OSError as e:
+        raise OSError(f"Failed to create logs directory: {e}") from e
 
     # Handle log file output
     log_file_path = getattr(args, "log_file", None)
@@ -100,12 +122,22 @@ def configure_logging_from_args(
     # By default, always save timestamped file to logs/ directory
     if not log_file_path:
         log_file_path = generate_log_filename(provider, model)
+    elif not isinstance(log_file_path, str):
+        raise ValueError(f"log_file must be a string, got {type(log_file_path)}")
 
-    # Create directory if needed
-    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+    # Validate and create directory if needed
+    try:
+        log_dir = os.path.dirname(log_file_path)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+    except OSError as e:
+        raise OSError(f"Failed to create log file directory: {e}") from e
 
     # Open log file for writing
-    log_file = open(log_file_path, "w", encoding="utf-8")
+    try:
+        log_file = open(log_file_path, "w", encoding="utf-8")
+    except OSError as e:
+        raise OSError(f"Failed to open log file {log_file_path}: {e}") from e
 
     # Always save to timestamped file, show console output for console format
     if format == LogFormat.CONSOLE:
@@ -116,7 +148,10 @@ def configure_logging_from_args(
         # Return cleanup function
         def cleanup():
             if logger.log_file:
-                logger.log_file.close()
+                try:
+                    logger.log_file.close()
+                except Exception:
+                    pass  # Ignore errors during cleanup
                 logger.log_file = None
             print(f"Session saved: {log_file_path}")
 
@@ -130,7 +165,10 @@ def configure_logging_from_args(
         # Return cleanup function
         def cleanup():
             sys.stdout = original_stdout
-            log_file.close()
+            try:
+                log_file.close()
+            except Exception:
+                pass  # Ignore errors during cleanup
             print(f"Logs saved to {log_file_path}")
 
         return cleanup

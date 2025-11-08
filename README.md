@@ -16,8 +16,8 @@ pip install llm-station[google]     # Google only
 pip install llm-station[all]        # All providers
 
 # Development install
-git clone https://github.com/your-repo/llm_station.git
-cd llm_station
+git clone https://github.com/ali-izhar/llm-station.git
+cd llm-station
 pip install -e .[dev]
 ```
 
@@ -68,6 +68,4 @@ response = agent.generate(
 
 ## Documentation
 
-- **[OPENAI.md](OPENAI.md)** - OpenAI provider setup and tools
-- **[GOOGLE.md](GOOGLE.md)** - Google Gemini provider setup and tools  
-- **[CLAUDE.md](CLAUDE.md)** - Anthropic Claude provider setup and tools
+- **[PROVIDER.md](PROVIDER.md)** - Complete provider documentation for OpenAI, Google Gemini, and Anthropic Claude

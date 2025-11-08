@@ -18,8 +18,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from ..schemas.messages import Message
-from ..schemas.tooling import ToolSpec
+from ..types import Message, ToolSpec
 
 
 class GoogleBatchStatus(Enum):
@@ -125,6 +124,9 @@ class GoogleBatchProcessor:
         Returns:
             GoogleBatchTask object ready for batch processing
 
+        Raises:
+            ValueError: If inputs are invalid
+
         Examples:
             # Simple text task
             task = processor.create_task(
@@ -144,6 +146,14 @@ class GoogleBatchProcessor:
                 ]
             )
         """
+        # Input validation
+        if not key or not isinstance(key, str):
+            raise ValueError("key must be a non-empty string")
+        if not model or not isinstance(model, str):
+            raise ValueError("model must be a non-empty string")
+        if not contents:
+            raise ValueError("contents cannot be empty")
+
         # Convert different content formats to Gemini format
         gemini_contents = self._convert_contents(contents)
 
@@ -198,7 +208,7 @@ class GoogleBatchProcessor:
     def create_batch_file(
         self, tasks: List[GoogleBatchTask], file_path: Optional[str] = None
     ) -> str:
-        """Create JSONL batch file from tasks.
+        """Create JSONL batch file from tasks with input validation.
 
         Args:
             tasks: List of GoogleBatchTask objects
@@ -206,6 +216,10 @@ class GoogleBatchProcessor:
 
         Returns:
             Path to created batch file
+
+        Raises:
+            ValueError: If tasks list is empty or invalid
+            RuntimeError: If file creation fails
 
         Format:
             Each line contains a JSON object:
@@ -218,18 +232,32 @@ class GoogleBatchProcessor:
                 }
             }
         """
+        # Input validation
+        if not tasks:
+            raise ValueError("tasks list cannot be empty")
+        if not isinstance(tasks, list):
+            raise ValueError("tasks must be a list")
+
         if not file_path:
             timestamp = int(time.time())
             file_path = f"google_batch_tasks_{timestamp}.jsonl"
 
-        # Ensure directory exists
-        Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # Ensure directory exists
+            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
 
-        with open(file_path, "w", encoding="utf-8") as file:
-            for task in tasks:
-                # Convert task to API request format
-                request = self._task_to_request(task)
-                file.write(json.dumps(request) + "\n")
+            with open(file_path, "w", encoding="utf-8") as file:
+                for i, task in enumerate(tasks):
+                    try:
+                        # Convert task to API request format
+                        request = self._task_to_request(task)
+                        file.write(json.dumps(request, ensure_ascii=False) + "\n")
+                    except Exception as e:
+                        raise RuntimeError(
+                            f"Failed to serialize task {i} (key: {task.key}): {e}"
+                        ) from e
+        except (OSError, IOError) as e:
+            raise RuntimeError(f"Failed to create batch file {file_path}: {e}") from e
 
         return file_path
 
@@ -305,7 +333,7 @@ class GoogleBatchProcessor:
         display_name: Optional[str] = None,
         **config_kwargs: Any,
     ) -> GoogleBatchJob:
-        """Create a batch job.
+        """Create a batch job with input validation.
 
         Args:
             model: Gemini model to use
@@ -315,20 +343,39 @@ class GoogleBatchProcessor:
 
         Returns:
             GoogleBatchJob object with job information
+
+        Raises:
+            ValueError: If inputs are invalid
+            RuntimeError: If batch job creation fails
         """
+        # Input validation
+        if not model or not isinstance(model, str):
+            raise ValueError("model must be a non-empty string")
+        if not src:
+            raise ValueError(
+                "src cannot be empty (must be file name or list of requests)"
+            )
+
         config = {"display_name": display_name} if display_name else {}
         config.update(config_kwargs)
 
-        if isinstance(src, str):
-            # File-based batch job
-            batch_response = self.client.batches.create(
-                model=model, src=src, config=config
-            )
-        else:
-            # Inline batch job
-            batch_response = self.client.batches.create(
-                model=model, src=src, config=config
-            )
+        try:
+            if isinstance(src, str):
+                # File-based batch job
+                batch_response = self.client.batches.create(
+                    model=model, src=src, config=config
+                )
+            else:
+                # Inline batch job
+                if not isinstance(src, list):
+                    raise ValueError(
+                        "src must be a string (file name) or list of requests"
+                    )
+                batch_response = self.client.batches.create(
+                    model=model, src=src, config=config
+                )
+        except Exception as e:
+            raise RuntimeError(f"Failed to create batch job: {e}") from e
 
         return self._response_to_batch_job(batch_response)
 
@@ -371,21 +418,23 @@ class GoogleBatchProcessor:
     def download_results(
         self, batch_job: GoogleBatchJob, output_file_path: Optional[str] = None
     ) -> List[GoogleBatchResult]:
-        """Download and parse batch job results.
+        """Download and parse batch job results with improved error handling.
 
         Args:
             batch_job: Completed GoogleBatchJob object
             output_file_path: Optional path to save results file
 
         Returns:
-            List of GoogleBatchResult objects
+            List of GoogleBatchResult objects (includes both successful and failed results)
 
         Raises:
-            ValueError: If batch job is not completed
+            ValueError: If batch job is not completed or output unavailable
+            RuntimeError: If file download or parsing fails
         """
         if batch_job.state != GoogleBatchStatus.JOB_STATE_SUCCEEDED:
             raise ValueError(
-                f"Batch job not completed. Status: {batch_job.state.value}"
+                f"Batch job not completed. Status: {batch_job.state.value}. "
+                f"Use wait_for_completion() or check status first."
             )
 
         # Handle inline responses
@@ -394,30 +443,74 @@ class GoogleBatchProcessor:
 
         # Handle file-based responses
         if not batch_job.dest_file_name:
-            raise ValueError("No output file or inline responses available")
+            raise ValueError(
+                "No output file or inline responses available. "
+                "The batch job may have failed or not produced results."
+            )
 
-        # Download results file
-        result_content = self.client.files.download(file=batch_job.dest_file_name)
+        try:
+            # Download results file - Google SDK returns a file object
+            file_response = self.client.files.download(file=batch_job.dest_file_name)
+            # Extract content - could be bytes, string, or object with content attribute
+            if hasattr(file_response, "content"):
+                result_content = file_response.content
+            elif hasattr(file_response, "read"):
+                result_content = file_response.read()
+            elif isinstance(file_response, bytes):
+                result_content = file_response
+            elif isinstance(file_response, str):
+                result_content = file_response.encode("utf-8")
+            else:
+                # Try to get bytes from response
+                result_content = bytes(file_response) if file_response else b""
+        except Exception as e:
+            raise RuntimeError(f"Failed to download batch results: {e}") from e
 
         # Save to file if path provided
         if output_file_path:
-            Path(output_file_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(output_file_path, "wb") as file:
-                file.write(result_content)
+            try:
+                Path(output_file_path).parent.mkdir(parents=True, exist_ok=True)
+                with open(output_file_path, "wb") as file:
+                    file.write(result_content)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to save results to {output_file_path}: {e}"
+                ) from e
 
-        # Parse results
+        # Parse results with error handling
         results = []
-        result_text = result_content.decode("utf-8")
-        for line in result_text.strip().split("\n"):
-            if line.strip():
-                result_data = json.loads(line.strip())
-                results.append(
-                    GoogleBatchResult(
-                        key=result_data.get("key"),
-                        response=result_data.get("response"),
-                        error=result_data.get("error"),
-                    )
-                )
+        try:
+            # Ensure result_content is bytes
+            if isinstance(result_content, str):
+                result_text = result_content
+            else:
+                result_text = result_content.decode("utf-8")
+
+            # Handle empty results
+            if not result_text or not result_text.strip():
+                return results  # Return empty list if no results
+
+            for line_num, line in enumerate(result_text.strip().split("\n"), 1):
+                if line.strip():
+                    try:
+                        result_data = json.loads(line.strip())
+                        results.append(
+                            GoogleBatchResult(
+                                key=result_data.get("key"),
+                                response=result_data.get("response"),
+                                error=result_data.get("error"),
+                            )
+                        )
+                    except json.JSONDecodeError as e:
+                        raise RuntimeError(
+                            f"Failed to parse result line {line_num}: {e}. Line content: {line[:100]}"
+                        ) from e
+        except (UnicodeDecodeError, AttributeError) as e:
+            raise RuntimeError(f"Failed to decode batch results file: {e}") from e
+
+        # Check for failures (best practice: batch APIs may succeed even if items fail)
+        failed_count = sum(1 for r in results if r.error is not None)
+        # Note: Don't raise on failures - caller can check result.error for each item
 
         return results
 
@@ -472,9 +565,27 @@ class GoogleBatchProcessor:
         else:
             data = response
 
-        # Parse state
-        state_name = data.get("state", {}).get("name", "JOB_STATE_UNSPECIFIED")
-        state = GoogleBatchStatus(state_name)
+        # Parse state - handle dict, enum, or string
+        state_obj = data.get("state")
+        if state_obj is None:
+            state_name = "JOB_STATE_UNSPECIFIED"
+        elif isinstance(state_obj, dict):
+            state_name = state_obj.get("name", "JOB_STATE_UNSPECIFIED")
+        elif hasattr(state_obj, "name"):  # Enum with .name attribute
+            state_name = state_obj.name
+        elif hasattr(state_obj, "value"):  # Enum with .value attribute
+            state_name = state_obj.value
+        elif isinstance(state_obj, str):
+            state_name = state_obj
+        else:
+            # Try to convert to string
+            state_name = str(state_obj)
+
+        try:
+            state = GoogleBatchStatus(state_name)
+        except ValueError:
+            # If state name doesn't match enum, default to UNSPECIFIED
+            state = GoogleBatchStatus.JOB_STATE_UNSPECIFIED
 
         # Parse timestamps
         create_time = None
@@ -503,17 +614,31 @@ class GoogleBatchProcessor:
             if isinstance(dest_data, dict):
                 if "file_name" in dest_data:
                     dest_file_name = dest_data["file_name"]
-                if "inlined_responses" in dest_data:
+                if (
+                    "inlined_responses" in dest_data
+                    and dest_data["inlined_responses"] is not None
+                ):
                     # Parse inline responses
                     inline_data = dest_data["inlined_responses"]
-                    inlined_responses = []
-                    for inline_resp in inline_data:
-                        inlined_responses.append(
-                            GoogleBatchResult(
-                                response=inline_resp.get("response"),
-                                error=inline_resp.get("error"),
+                    if isinstance(inline_data, list):
+                        inlined_responses = []
+                        for inline_resp in inline_data:
+                            # Handle both dict and object responses
+                            if isinstance(inline_resp, dict):
+                                resp_dict = inline_resp
+                            elif hasattr(inline_resp, "model_dump"):
+                                resp_dict = inline_resp.model_dump()
+                            elif hasattr(inline_resp, "__dict__"):
+                                resp_dict = inline_resp.__dict__
+                            else:
+                                resp_dict = {}
+
+                            inlined_responses.append(
+                                GoogleBatchResult(
+                                    response=resp_dict.get("response"),
+                                    error=resp_dict.get("error"),
+                                )
                             )
-                        )
 
         return GoogleBatchJob(
             name=data.get("name", ""),

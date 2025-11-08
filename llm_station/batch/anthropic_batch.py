@@ -16,8 +16,7 @@ from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
 
-from ..schemas.messages import Message, UserMessage
-from ..schemas.tooling import ToolSpec
+from ..types import Message, UserMessage, ToolSpec
 
 
 class AnthropicBatchStatus(Enum):
@@ -115,7 +114,7 @@ class AnthropicBatchProcessor:
         system: Optional[Union[str, List[Dict[str, Any]]]] = None,
         **kwargs: Any,
     ) -> AnthropicBatchRequest:
-        """Create a single batch request.
+        """Create a single batch request with input validation.
 
         Args:
             custom_id: Unique identifier for this request
@@ -127,6 +126,9 @@ class AnthropicBatchProcessor:
 
         Returns:
             AnthropicBatchRequest object ready for batch processing
+
+        Raises:
+            ValueError: If inputs are invalid
 
         Examples:
             # Simple text request
@@ -146,15 +148,29 @@ class AnthropicBatchProcessor:
                 temperature=0.7
             )
         """
+        # Input validation
+        if not custom_id or not isinstance(custom_id, str):
+            raise ValueError("custom_id must be a non-empty string")
+        if not model or not isinstance(model, str):
+            raise ValueError("model must be a non-empty string")
+        if not messages:
+            raise ValueError("messages cannot be empty")
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be at least 1")
+
         # Convert dict messages to Message objects if needed
         if messages and isinstance(messages[0], dict):
             message_objects = []
-            for msg in messages:
+            for i, msg in enumerate(messages):
+                if not isinstance(msg, dict) or "role" not in msg:
+                    raise ValueError(
+                        f"Invalid message format at index {i}: must have 'role' key"
+                    )
                 if msg["role"] == "system":
                     # System messages handled separately in Anthropic
                     continue
                 elif msg["role"] == "user":
-                    message_objects.append(UserMessage(msg["content"]))
+                    message_objects.append(UserMessage(msg.get("content", "")))
                 # Add other message types as needed
             messages = message_objects
 
@@ -170,40 +186,63 @@ class AnthropicBatchProcessor:
     def create_batch_job(
         self, requests: List[AnthropicBatchRequest]
     ) -> AnthropicBatchJob:
-        """Create a Message Batch job.
+        """Create a Message Batch job with input validation.
 
         Args:
             requests: List of AnthropicBatchRequest objects
 
         Returns:
             AnthropicBatchJob object with job information
+
+        Raises:
+            ValueError: If requests list is empty or invalid
+            RuntimeError: If batch job creation fails
         """
+        # Input validation
+        if not requests:
+            raise ValueError("requests list cannot be empty")
+        if not isinstance(requests, list):
+            raise ValueError("requests must be a list")
+        if not all(isinstance(req, AnthropicBatchRequest) for req in requests):
+            raise ValueError(
+                "All items in requests must be AnthropicBatchRequest objects"
+            )
+
         # Convert requests to API format
         api_requests = []
-        for req in requests:
-            # Build params object
-            params = {
-                "model": req.model,
-                "max_tokens": req.max_tokens,
-                "messages": self._convert_messages(req.messages),
-            }
+        for i, req in enumerate(requests):
+            try:
+                # Build params object
+                params = {
+                    "model": req.model,
+                    "max_tokens": req.max_tokens,
+                    "messages": self._convert_messages(req.messages),
+                }
 
-            # Add optional parameters
-            if req.system:
-                params["system"] = req.system
-            if req.temperature is not None:
-                params["temperature"] = req.temperature
-            if req.tools:
-                params["tools"] = self._convert_tools(req.tools)
-            if req.tool_choice:
-                params["tool_choice"] = req.tool_choice
-            if req.metadata:
-                params["metadata"] = req.metadata
+                # Add optional parameters
+                if req.system:
+                    params["system"] = req.system
+                if req.temperature is not None:
+                    params["temperature"] = req.temperature
+                if req.tools:
+                    params["tools"] = self._convert_tools(req.tools)
+                if req.tool_choice:
+                    params["tool_choice"] = req.tool_choice
+                if req.metadata:
+                    params["metadata"] = req.metadata
 
-            api_requests.append({"custom_id": req.custom_id, "params": params})
+                api_requests.append({"custom_id": req.custom_id, "params": params})
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to convert request {i} (custom_id: {req.custom_id}): {e}"
+                ) from e
 
         # Create batch
-        batch_response = self.client.messages.batches.create(requests=api_requests)
+        try:
+            batch_response = self.client.messages.batches.create(requests=api_requests)
+        except Exception as e:
+            raise RuntimeError(f"Failed to create batch job: {e}") from e
+
         return self._response_to_batch_job(batch_response)
 
     def _convert_messages(self, messages: List[Message]) -> List[Dict[str, Any]]:
@@ -274,48 +313,73 @@ class AnthropicBatchProcessor:
     def download_results(
         self, batch_job: AnthropicBatchJob
     ) -> List[AnthropicBatchResult]:
-        """Download and parse batch job results.
+        """Download and parse batch job results with improved error handling.
 
         Args:
             batch_job: Completed AnthropicBatchJob object
 
         Returns:
-            List of AnthropicBatchResult objects
+            List of AnthropicBatchResult objects (includes both successful and failed results)
 
         Raises:
-            ValueError: If batch job is not completed
+            ValueError: If batch job is not completed or results URL unavailable
+            RuntimeError: If results download or parsing fails
         """
         if batch_job.processing_status != AnthropicBatchStatus.ENDED:
             raise ValueError(
-                f"Batch job not completed. Status: {batch_job.processing_status.value}"
+                f"Batch job not completed. Status: {batch_job.processing_status.value}. "
+                f"Use wait_for_completion() or check status first."
             )
 
         if not batch_job.results_url:
-            raise ValueError("No results URL available")
-
-        # Stream results for memory efficiency
-        results = []
-        for result in self.client.messages.batches.results(batch_job.id):
-            result_type = AnthropicBatchResultType(result.result.type)
-
-            batch_result = AnthropicBatchResult(
-                custom_id=result.custom_id, result_type=result_type
+            raise ValueError(
+                "No results URL available. The batch job may have failed or not produced results."
             )
 
-            if result_type == AnthropicBatchResultType.SUCCEEDED:
-                batch_result.message = (
-                    result.result.message.model_dump()
-                    if hasattr(result.result.message, "model_dump")
-                    else result.result.message
-                )
-            elif result_type == AnthropicBatchResultType.ERRORED:
-                batch_result.error = (
-                    result.result.error.model_dump()
-                    if hasattr(result.result.error, "model_dump")
-                    else result.result.error
-                )
+        # Stream results for memory efficiency with error handling
+        results = []
+        try:
+            for result in self.client.messages.batches.results(batch_job.id):
+                try:
+                    result_type = AnthropicBatchResultType(result.result.type)
 
-            results.append(batch_result)
+                    batch_result = AnthropicBatchResult(
+                        custom_id=result.custom_id, result_type=result_type
+                    )
+
+                    if result_type == AnthropicBatchResultType.SUCCEEDED:
+                        batch_result.message = (
+                            result.result.message.model_dump()
+                            if hasattr(result.result.message, "model_dump")
+                            else result.result.message
+                        )
+                    elif result_type == AnthropicBatchResultType.ERRORED:
+                        batch_result.error = (
+                            result.result.error.model_dump()
+                            if hasattr(result.result.error, "model_dump")
+                            else result.result.error
+                        )
+
+                    results.append(batch_result)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to parse result for custom_id {result.custom_id}: {e}"
+                    ) from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to download batch results: {e}") from e
+
+        # Check for failures (best practice: batch APIs may succeed even if items fail)
+        failed_count = sum(
+            1
+            for r in results
+            if r.result_type
+            in [
+                AnthropicBatchResultType.ERRORED,
+                AnthropicBatchResultType.CANCELED,
+                AnthropicBatchResultType.EXPIRED,
+            ]
+        )
+        # Note: Don't raise on failures - caller can check result.result_type and result.error
 
         return results
 
@@ -445,9 +509,9 @@ class AnthropicBatchProcessor:
         Returns:
             AnthropicBatchJob object
         """
-        from ..tools.registry import get_tool_spec
+        from ..tools import get_spec
 
-        search_tool_spec = get_tool_spec("search", provider_preference="anthropic")
+        search_tool_spec = get_spec("search", provider_preference="anthropic")
         requests = []
 
         for i, topic in enumerate(topics):
@@ -601,9 +665,9 @@ def create_code_analysis_batch(
     Returns:
         AnthropicBatchJob object
     """
-    from ..tools.registry import get_tool_spec
+    from ..tools import get_spec
 
-    code_tool_spec = get_tool_spec("code", provider_preference="anthropic")
+    code_tool_spec = get_spec("code", provider_preference="anthropic")
     requests = []
 
     for i, code in enumerate(code_samples):

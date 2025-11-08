@@ -17,8 +17,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from ..schemas.messages import Message, UserMessage, SystemMessage
-from ..schemas.tooling import ToolSpec
+from ..types import Message, UserMessage, SystemMessage, ToolSpec
 
 
 class BatchStatus(Enum):
@@ -134,11 +133,14 @@ class OpenAIBatchProcessor:
         Returns:
             BatchTask object ready for batch processing
 
+        Raises:
+            ValueError: If inputs are invalid
+
         Examples:
             # Simple text task
             task = processor.create_task(
                 custom_id="movie-1",
-                model="your-model",
+                model="gpt-4o-mini",
                 messages=[
                     SystemMessage("You are a movie categorizer"),
                     UserMessage("Categorize this movie: The Godfather")
@@ -150,7 +152,7 @@ class OpenAIBatchProcessor:
             # Vision task with image
             task = processor.create_task(
                 custom_id="image-1",
-                model="your-model",
+                model="gpt-4o-mini",
                 messages=[
                     SystemMessage("Caption this image briefly"),
                     UserMessage([
@@ -161,14 +163,26 @@ class OpenAIBatchProcessor:
                 max_tokens=300
             )
         """
+        # Input validation
+        if not custom_id or not isinstance(custom_id, str):
+            raise ValueError("custom_id must be a non-empty string")
+        if not model or not isinstance(model, str):
+            raise ValueError("model must be a non-empty string")
+        if not messages:
+            raise ValueError("messages cannot be empty")
+
         # Convert dict messages to Message objects if needed
         if messages and isinstance(messages[0], dict):
             message_objects = []
-            for msg in messages:
+            for i, msg in enumerate(messages):
+                if not isinstance(msg, dict) or "role" not in msg:
+                    raise ValueError(
+                        f"Invalid message format at index {i}: must have 'role' key"
+                    )
                 if msg["role"] == "system":
-                    message_objects.append(SystemMessage(msg["content"]))
+                    message_objects.append(SystemMessage(msg.get("content", "")))
                 elif msg["role"] == "user":
-                    message_objects.append(UserMessage(msg["content"]))
+                    message_objects.append(UserMessage(msg.get("content", "")))
                 # Add other message types as needed
             messages = message_objects
 
@@ -186,6 +200,10 @@ class OpenAIBatchProcessor:
         Returns:
             Path to created batch file
 
+        Raises:
+            ValueError: If tasks list is empty or invalid
+            RuntimeError: If file creation fails
+
         Format:
             Each line contains a JSON object:
             {
@@ -200,18 +218,32 @@ class OpenAIBatchProcessor:
                 }
             }
         """
+        # Input validation
+        if not tasks:
+            raise ValueError("tasks list cannot be empty")
+        if not isinstance(tasks, list):
+            raise ValueError("tasks must be a list")
+
         if not file_path:
             timestamp = int(time.time())
             file_path = f"batch_tasks_{timestamp}.jsonl"
 
-        # Ensure directory exists
-        Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # Ensure directory exists
+            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
 
-        with open(file_path, "w", encoding="utf-8") as file:
-            for task in tasks:
-                # Convert task to API request format
-                request = self._task_to_request(task)
-                file.write(json.dumps(request) + "\n")
+            with open(file_path, "w", encoding="utf-8") as file:
+                for i, task in enumerate(tasks):
+                    try:
+                        # Convert task to API request format
+                        request = self._task_to_request(task)
+                        file.write(json.dumps(request, ensure_ascii=False) + "\n")
+                    except Exception as e:
+                        raise RuntimeError(
+                            f"Failed to serialize task {i} (custom_id: {task.custom_id}): {e}"
+                        ) from e
+        except (OSError, IOError) as e:
+            raise RuntimeError(f"Failed to create batch file {file_path}: {e}") from e
 
         return file_path
 
@@ -298,13 +330,26 @@ class OpenAIBatchProcessor:
 
         Returns:
             BatchJob object with job information
+
+        Raises:
+            ValueError: If input_file_id is invalid
+            RuntimeError: If batch job creation fails
         """
-        batch_response = self.client.batches.create(
-            input_file_id=input_file_id,
-            endpoint="/v1/chat/completions",
-            completion_window=completion_window.value,
-            metadata=metadata,
-        )
+        # Input validation
+        if not input_file_id or not isinstance(input_file_id, str):
+            raise ValueError("input_file_id must be a non-empty string")
+
+        try:
+            batch_response = self.client.batches.create(
+                input_file_id=input_file_id,
+                endpoint="/v1/chat/completions",
+                completion_window=completion_window.value,
+                metadata=metadata,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to create batch job for file {input_file_id}: {e}"
+            ) from e
 
         return self._response_to_batch_job(batch_response)
 
@@ -354,41 +399,70 @@ class OpenAIBatchProcessor:
             output_file_path: Optional path to save results file
 
         Returns:
-            List of BatchResult objects
+            List of BatchResult objects (includes both successful and failed results)
 
         Raises:
-            ValueError: If batch job is not completed
+            ValueError: If batch job is not completed or output file unavailable
+            RuntimeError: If file download or parsing fails
         """
         if batch_job.status != BatchStatus.COMPLETED:
             raise ValueError(
-                f"Batch job not completed. Status: {batch_job.status.value}"
+                f"Batch job not completed. Status: {batch_job.status.value}. "
+                f"Use wait_for_completion() or check status first."
             )
 
         if not batch_job.output_file_id:
-            raise ValueError("No output file ID available")
+            raise ValueError(
+                "No output file ID available. The batch job may have failed or not produced results."
+            )
 
-        # Download results
-        result_content = self.client.files.content(batch_job.output_file_id).content
+        try:
+            # Download results
+            result_content = self.client.files.content(batch_job.output_file_id).content
+        except Exception as e:
+            raise RuntimeError(f"Failed to download batch results: {e}") from e
 
         # Save to file if path provided
         if output_file_path:
-            Path(output_file_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(output_file_path, "wb") as file:
-                file.write(result_content)
+            try:
+                Path(output_file_path).parent.mkdir(parents=True, exist_ok=True)
+                with open(output_file_path, "wb") as file:
+                    file.write(result_content)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to save results to {output_file_path}: {e}"
+                ) from e
 
-        # Parse results
+        # Parse results with error handling
         results = []
-        result_text = result_content.decode("utf-8")
-        for line in result_text.strip().split("\n"):
-            if line.strip():
-                result_data = json.loads(line.strip())
-                results.append(
-                    BatchResult(
-                        custom_id=result_data["custom_id"],
-                        response=result_data.get("response", {}),
-                        error=result_data.get("error"),
-                    )
-                )
+        try:
+            result_text = result_content.decode("utf-8")
+            for line_num, line in enumerate(result_text.strip().split("\n"), 1):
+                if line.strip():
+                    try:
+                        result_data = json.loads(line.strip())
+                        results.append(
+                            BatchResult(
+                                custom_id=result_data.get(
+                                    "custom_id", f"unknown_{line_num}"
+                                ),
+                                response=result_data.get("response", {}),
+                                error=result_data.get("error"),
+                            )
+                        )
+                    except json.JSONDecodeError as e:
+                        # Log but continue parsing other results
+                        raise RuntimeError(
+                            f"Failed to parse result line {line_num}: {e}. Line content: {line[:100]}"
+                        ) from e
+        except UnicodeDecodeError as e:
+            raise RuntimeError(f"Failed to decode batch results file: {e}") from e
+
+        # Check for failures in results (best practice: batch APIs may succeed even if items fail)
+        failed_count = sum(1 for r in results if r.error is not None)
+        if failed_count > 0:
+            # Don't raise, but this is important information
+            pass  # Caller can check result.error for each item
 
         return results
 
