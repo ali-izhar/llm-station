@@ -1,19 +1,21 @@
-# Test dependencies
-pytest>=7.2
+# Development dependencies
+# For development, use: pip install -e .[dev]
 
-# Provider SDKs (optional; wire adapters to use these)
-openai>=1.40.0
-anthropic>=0.31.0
-google-genai>=0.3.0
-huggingface_hub>=0.20.0
-google-search-results>=0.1.5
-
-# Logging and CLI dependencies
-rich>=13.0.0
+# Core dependencies (already in pyproject.toml)
 python-dotenv>=1.0.0
 
-# HuggingFace web search dependencies (optional)
-requests>=2.31.0
-beautifulsoup4>=4.12.0
-trafilatura>=1.6.0
+# Test framework
+pytest>=7.2
 
+# Provider SDKs (optional - install as needed)
+# pip install llm-station[openai]
+# pip install llm-station[anthropic]
+# pip install llm-station[google]
+# pip install llm-station[all]
+
+# Optional HuggingFace dependencies (if using HuggingFace provider)
+# huggingface_hub>=0.20.0
+# google-search-results>=0.1.5
+# requests>=2.31.0
+# beautifulsoup4>=4.12.0
+# trafilatura>=1.6.0
